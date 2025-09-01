@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    container_name: codenova-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: codenova_secure_password
+      POSTGRES_DB: codenova_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d/
+    networks:
+      - codenova-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: codenova-redis
+    restart: always
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      - codenova-network
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: codenova-rabbitmq
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: codenova
+      RABBITMQ_DEFAULT_PASS: rabbitmq_password
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - codenova-network
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: codenova-pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@codenova.com
+      PGADMIN_DEFAULT_PASSWORD: pgadmin_password
+      PGADMIN_LISTEN_ADDRESS: 0.0.0.0
+    ports:
+      - '8081:80'
+    depends_on:
+      - postgres
+    networks:
+      - codenova-network
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  pgadmin_data:
+
+networks:
+  codenova-network:
+    driver: bridge
