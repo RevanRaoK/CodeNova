@@ -1,0 +1,130 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@import 'tailwindcss';
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  body {
+    background-color: white;
+    color: rgb(17 24 39);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .dark body {
+    background-color: rgb(15 23 42);
+    color: rgb(248 250 252);
+  }
+
+  * {
+    border-color: rgb(229 231 235);
+  }
+
+  .dark * {
+    border-color: rgb(51 65 85);
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: rgb(241 245 249);
+  }
+
+  .dark ::-webkit-scrollbar-track {
+    background: rgb(30 41 59);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgb(203 213 225);
+    border-radius: 3px;
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    background: rgb(71 85 105);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(148 163 184);
+  }
+
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: rgb(100 116 139);
+  }
+}
+
+@layer components {
+  .btn-primary {
+    background-color: rgb(37 99 235);
+    color: white;
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    transition: background-color 0.15s ease-in-out;
+  }
+
+  .btn-primary:hover {
+    background-color: rgb(29 78 216);
+  }
+
+  .btn-primary:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgb(59 130 246 / 0.5);
+  }
+
+  .btn-secondary {
+    background-color: rgb(241 245 249);
+    color: rgb(15 23 42);
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    transition: background-color 0.15s ease-in-out;
+  }
+
+  .btn-secondary:hover {
+    background-color: rgb(226 232 240);
+  }
+
+  .btn-secondary:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgb(100 116 139 / 0.5);
+  }
+
+  .input-field {
+    display: block;
+    width: 100%;
+    border-radius: 0.5rem;
+    border: 1px solid rgb(209 213 219);
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  .input-field:focus {
+    border-color: rgb(59 130 246);
+    box-shadow: 0 0 0 1px rgb(59 130 246);
+  }
+
+  .card {
+    background-color: white;
+    border-radius: 0.5rem;
+    box-shadow:
+      0 1px 3px 0 rgb(0 0 0 / 0.1),
+      0 1px 2px -1px rgb(0 0 0 / 0.1);
+    border: 1px solid rgb(229 231 235);
+    padding: 1.5rem;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
