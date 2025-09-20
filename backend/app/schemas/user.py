@@ -6,9 +6,10 @@ from app.models.users import UserRole
 
 class UserBase(BaseModel):
     email: EmailStr
-    name: Optional[str] = None
+    full_name: Optional[str] = None
 
 class UserCreate(UserBase):
+    full_name: str = Field(..., min_length=2, max_length=100)
     password: str = Field(..., min_length=8, max_length=100)
     
     @validator('password')
@@ -24,7 +25,7 @@ class UserCreate(UserBase):
         return v
 
 class UserUpdate(BaseModel):
-    name: Optional[str] = None
+    full_name: Optional[str] = None
     email: Optional[EmailStr] = None
     password: Optional[str] = Field(None, min_length=8, max_length=100)
 

@@ -1,6 +1,6 @@
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from typing import Any
 
@@ -8,10 +8,13 @@ from app.core.database import get_db
 from app.core.security import ACCESS_TOKEN_EXPIRE_MINUTES
 from app.models.users import User, UserRole
 from app.schemas.user import (
-    UserCreate, UserResponse, Token, UserLogin, 
+    UserCreate, UserResponse, UserLogin, 
     PasswordResetRequest, PasswordReset, UserRoleUpdate
 )
 from app.services.auth_service import AuthService
+
+# OAuth2 scheme for token authentication
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 router = APIRouter()
 
@@ -40,26 +43,53 @@ def get_current_active_admin(
         )
     return current_user
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
 def register_user(
     *,
     db: Session = Depends(get_db),
     user_in: UserCreate,
 ) -> Any:
     """Register a new user."""
-    # Check if user already exists
-    db_user = db.query(User).filter(User.email == user_in.email).first()
-    if db_user:
+    try:
+        # Check if user already exists
+        db_user = db.query(User).filter(User.email == user_in.email).first()
+        if db_user:
+            raise HTTPException(
+                status_code=400,
+                detail="Email already registered",
+            )
+        
+        # Create new user
+        user = AuthService.create_user(db, user_in)
+        
+        # Create tokens for the new user
+        tokens = AuthService.create_user_tokens(db, user)
+        
+        return {
+            "access_token": tokens["access_token"],
+            "refresh_token": tokens["refresh_token"],
+            "token_type": tokens["token_type"],
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "full_name": user.full_name,
+                "role": user.role.value,
+                "is_active": user.is_active,
+                "is_verified": user.is_verified,
+                "created_at": user.created_at.isoformat(),
+                "updated_at": user.updated_at.isoformat()
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Registration error: {str(e)}")
         raise HTTPException(
-            status_code=400,
-            detail="Email already registered",
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
         )
-    
-    # Create new user
-    user = AuthService.create_user(db, user_in)
-    return user
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=dict)
 def login(
     db: Session = Depends(get_db),
     form_data: OAuth2PasswordRequestForm = Depends()
@@ -74,7 +104,22 @@ def login(
         )
     
     tokens = AuthService.create_user_tokens(db, user)
-    return tokens
+    
+    return {
+        "access_token": tokens["access_token"],
+        "refresh_token": tokens["refresh_token"],
+        "token_type": tokens["token_type"],
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role.value,
+            "is_active": user.is_active,
+            "is_verified": user.is_verified,
+            "created_at": user.created_at.isoformat(),
+            "updated_at": user.updated_at.isoformat()
+        }
+    }
 
 @router.post("/refresh-token", response_model=dict)
 def refresh_token(

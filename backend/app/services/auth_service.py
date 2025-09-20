@@ -12,7 +12,7 @@ from app.core.security import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
 from app.models.users import User, Token, UserRole
-from app.schemas.user import UserCreate, UserResponse, Token, UserLogin, TokenPayload
+from app.schemas.user import UserCreate, UserResponse, TokenPayload
 
 class AuthService:
     @staticmethod
@@ -21,7 +21,7 @@ class AuthService:
         hashed_password = get_password_hash(user_data.password)
         db_user = User(
             email=user_data.email,
-            name=user_data.name,
+            full_name=user_data.full_name,
             hashed_password=hashed_password,
             role=UserRole.GUEST,
             is_active=True,
