@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { EyeIcon, EyeOffIcon, LogInIcon } from 'lucide-react'
+import { Eye, EyeOff, LogIn } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
 export function Login() {
@@ -8,7 +8,7 @@ export function Login() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [errors, setErrors] = useState({})
-  const [loginError, setLoginError] = useState('')
+
   const [isLoading, setIsLoading] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
@@ -19,7 +19,6 @@ export function Login() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    setLoginError('')
     setErrors({})
 
     const newErrors = {}
@@ -46,7 +45,7 @@ export function Login() {
       navigate(from, { replace: true })
     } catch (error) {
       console.error('Login failed:', error)
-      setLoginError(error.message || 'Login failed. Please try again.')
+      // Error notification is now handled by AuthContext
     } finally {
       setIsLoading(false)
     }
@@ -70,9 +69,7 @@ export function Login() {
           </p>
         </div>
 
-        {loginError && (
-          <p className="text-sm text-red-600 text-center">{loginError}</p>
-        )}
+
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="rounded-md shadow-sm -space-y-px">
@@ -120,9 +117,9 @@ export function Login() {
                 onClick={() => setShowPassword(!showPassword)}
               >
                 {showPassword ? (
-                  <EyeOffIcon className="h-5 w-5 text-gray-400" />
+                  <EyeOff className="h-5 w-5 text-gray-400" />
                 ) : (
-                  <EyeIcon className="h-5 w-5 text-gray-400" />
+                  <Eye className="h-5 w-5 text-gray-400" />
                 )}
               </button>
               {errors.password && (
@@ -167,7 +164,7 @@ export function Login() {
               }`}
             >
               <span className="absolute left-0 inset-y-0 flex items-center pl-3">
-                <LogInIcon className="h-5 w-5 text-indigo-500 group-hover:text-indigo-400" />
+                <LogIn className="h-5 w-5 text-indigo-500 group-hover:text-indigo-400" />
               </span>
               {isLoading ? 'Signing in...' : 'Sign in'}
             </button>

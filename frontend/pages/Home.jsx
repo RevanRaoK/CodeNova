@@ -32,7 +32,7 @@ export function Home() {
               to="/pattern-library"
               className="bg-indigo-700 hover:bg-indigo-800 px-6 py-3 rounded-md font-medium"
             >
-              Explore Patterns
+              View History
             </Link>
           </div>
         </div>

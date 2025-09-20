@@ -75,7 +75,7 @@ export function Sidebar({ isOpen, setIsOpen }) {
             }
           >
             <LibraryIcon className="mr-3 h-5 w-5" />
-            Pattern Library
+            Analysis History
           </NavLink>
           <NavLink
             to="/settings"

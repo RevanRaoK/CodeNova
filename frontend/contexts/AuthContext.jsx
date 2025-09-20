@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import authService from '../services/authService';
+import { useNotification } from './NotificationContext';
 
 const AuthContext = createContext();
 
@@ -16,6 +17,20 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  
+  // Get notification functions, but handle case where NotificationProvider might not be available yet
+  let showSuccess, showError, showWarning;
+  try {
+    const notification = useNotification();
+    showSuccess = notification.showSuccess;
+    showError = notification.showError;
+    showWarning = notification.showWarning;
+  } catch (error) {
+    // NotificationProvider not available, use console fallbacks
+    showSuccess = (msg) => console.log('Success:', msg);
+    showError = (msg) => console.error('Error:', msg);
+    showWarning = (msg) => console.warn('Warning:', msg);
+  }
 
   useEffect(() => {
     // Check if user is already authenticated on app load
@@ -61,11 +76,13 @@ export const AuthProvider = ({ children }) => {
       setUser(result.user);
       setToken(result.token);
       setIsAuthenticated(true);
+      showSuccess(`Welcome back, ${result.user.username || result.user.email}!`);
       return result;
     } catch (error) {
       setUser(null);
       setToken(null);
       setIsAuthenticated(false);
+      showError(error.message || 'Login failed. Please check your credentials.');
       throw error;
     } finally {
       setIsLoading(false);
@@ -79,11 +96,13 @@ export const AuthProvider = ({ children }) => {
       setUser(result.user);
       setToken(result.token);
       setIsAuthenticated(true);
+      showSuccess('Account created successfully! Welcome to CodeNova AI.');
       return result;
     } catch (error) {
       setUser(null);
       setToken(null);
       setIsAuthenticated(false);
+      showError(error.message || 'Registration failed. Please try again.');
       throw error;
     } finally {
       setIsLoading(false);
@@ -94,8 +113,10 @@ export const AuthProvider = ({ children }) => {
     try {
       setIsLoading(true);
       await authService.logout();
+      showSuccess('You have been logged out successfully.');
     } catch (error) {
       console.error('Logout error:', error);
+      showWarning('Logout completed with some issues.');
     } finally {
       setUser(null);
       setToken(null);
@@ -114,6 +135,7 @@ export const AuthProvider = ({ children }) => {
       setUser(null);
       setToken(null);
       setIsAuthenticated(false);
+      showWarning('Your session has expired. Please log in again.');
       throw error;
     }
   };

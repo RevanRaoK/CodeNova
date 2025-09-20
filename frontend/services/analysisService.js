@@ -28,13 +28,13 @@ class AnalysisService {
   }
 
   /**
-   * Get analysis result by ID
-   * @param {string|number} analysisId - The analysis ID
+   * Get analysis result by ID (for direct analyses)
+   * @param {string} analysisId - The analysis ID
    * @returns {Promise<Object>} Analysis result data
    */
   async getAnalysisById(analysisId) {
     try {
-      const response = await httpClient.get(`/analysis/${analysisId}`);
+      const response = await httpClient.get(`/analysis/direct/${analysisId}`);
       return this.processAnalysisResponse(response.data);
     } catch (error) {
       console.error('Failed to fetch analysis:', error);
@@ -73,25 +73,31 @@ class AnalysisService {
   }
 
   /**
-   * Get user's analysis history
+   * Get user's analysis history with enhanced pagination and filtering
    * @param {Object} [options] - Query options
-   * @param {number} [options.limit] - Maximum number of results
-   * @param {number} [options.offset] - Offset for pagination
-   * @returns {Promise<Object>} List of user's analyses
+   * @param {number} [options.page] - Page number (1-based)
+   * @param {number} [options.page_size] - Items per page
+   * @param {string} [options.language] - Filter by programming language
+   * @param {string} [options.status] - Filter by analysis status
+   * @returns {Promise<Object>} List of user's analyses with pagination info
    */
   async getUserAnalyses(options = {}) {
     try {
       const params = new URLSearchParams();
-      if (options.limit) params.append('limit', options.limit);
-      if (options.offset) params.append('offset', options.offset);
+      if (options.page) params.append('page', options.page);
+      if (options.page_size) params.append('page_size', options.page_size);
+      if (options.language) params.append('language', options.language);
+      if (options.status) params.append('status', options.status);
 
-      const response = await httpClient.get(`/analysis/user?${params}`);
+      const response = await httpClient.get(`/analysis/direct/history?${params}`);
       
       return {
-        analyses: response.data.analyses?.map(analysis => this.processAnalysisResponse(analysis)) || [],
-        total: response.data.total || 0,
-        limit: response.data.limit || 10,
-        offset: response.data.offset || 0
+        analyses: response.data.analyses?.map(analysis => this.processAnalysisHistoryItem(analysis)) || [],
+        total_count: response.data.total_count || 0,
+        page: response.data.page || 1,
+        page_size: response.data.page_size || 20,
+        has_next: response.data.has_next || false,
+        has_previous: response.data.has_previous || false
       };
     } catch (error) {
       console.error('Failed to fetch user analyses:', error);
@@ -118,10 +124,6 @@ class AnalysisService {
       if (options.language) {
         formData.append('language', options.language);
       }
-      
-      if (options.autoAnalyze !== undefined) {
-        formData.append('auto_analyze', options.autoAnalyze.toString());
-      }
 
       const response = await httpClient.post('/files/upload', formData, {
         headers: {
@@ -143,14 +145,13 @@ class AnalysisService {
         filename: response.data.filename,
         content: response.data.content,
         language: response.data.language,
-        size: response.data.size,
-        uploadId: response.data.upload_id
+        sizeBytes: response.data.size_bytes,
+        sizeKB: response.data.size_kb,
+        linesCount: response.data.lines_count,
+        uploadId: response.data.upload_id,
+        uploadedAt: response.data.uploaded_at,
+        contentType: response.data.content_type
       };
-
-      // If analysis was requested and included in response
-      if (response.data.analysis) {
-        result.analysis = this.processAnalysisResponse(response.data.analysis);
-      }
 
       return result;
     } catch (error) {
@@ -160,13 +161,13 @@ class AnalysisService {
   }
 
   /**
-   * Delete an analysis
-   * @param {string|number} analysisId - The analysis ID to delete
+   * Delete a direct analysis
+   * @param {string} analysisId - The analysis ID to delete
    * @returns {Promise<void>}
    */
   async deleteAnalysis(analysisId) {
     try {
-      await httpClient.delete(`/analysis/${analysisId}`);
+      await httpClient.delete(`/analysis/direct/${analysisId}`);
     } catch (error) {
       console.error('Failed to delete analysis:', error);
       throw this.handleAnalysisError(error);
@@ -179,10 +180,24 @@ class AnalysisService {
    */
   async getAnalysisStats() {
     try {
-      const response = await httpClient.get('/analysis/stats');
+      const response = await httpClient.get('/analysis/direct/stats');
       return response.data;
     } catch (error) {
       console.error('Failed to fetch analysis stats:', error);
+      throw this.handleAnalysisError(error);
+    }
+  }
+
+  /**
+   * Get supported file extensions and upload limits
+   * @returns {Promise<Object>} Supported extensions and limits
+   */
+  async getSupportedExtensions() {
+    try {
+      const response = await httpClient.get('/files/supported-extensions');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch supported extensions:', error);
       throw this.handleAnalysisError(error);
     }
   }
@@ -194,7 +209,7 @@ class AnalysisService {
    */
   processAnalysisResponse(analysisData) {
     return {
-      id: analysisData.id,
+      id: analysisData.analysis_id || analysisData.id,
       status: analysisData.status,
       language: analysisData.language,
       filename: analysisData.filename,
@@ -202,8 +217,30 @@ class AnalysisService {
       completedAt: analysisData.completed_at,
       issues: this.processIssues(analysisData.issues || []),
       metrics: this.processMetrics(analysisData.metrics || {}),
-      suggestions: analysisData.suggestions || [],
-      summary: analysisData.summary || null
+      summary: analysisData.summary || null,
+      fileSizeBytes: analysisData.file_size_bytes,
+      processingTimeMs: analysisData.processing_time_ms,
+      aiModelUsed: analysisData.ai_model_used
+    };
+  }
+
+  /**
+   * Process and normalize analysis history item
+   * @param {Object} historyItem - Raw history item data from API
+   * @returns {Object} Processed history item data
+   */
+  processAnalysisHistoryItem(historyItem) {
+    return {
+      id: historyItem.analysis_id,
+      status: historyItem.status,
+      language: historyItem.language,
+      filename: historyItem.filename,
+      issuesCount: historyItem.issues_count,
+      errorsCount: historyItem.errors_count,
+      warningsCount: historyItem.warnings_count,
+      linesOfCode: historyItem.lines_of_code,
+      createdAt: historyItem.created_at,
+      completedAt: historyItem.completed_at
     };
   }
 
@@ -233,37 +270,32 @@ class AnalysisService {
   processMetrics(metrics) {
     return {
       linesOfCode: metrics.lines_of_code || metrics.linesOfCode || 0,
+      totalLines: metrics.total_lines || metrics.totalLines || 0,
       complexity: metrics.complexity || 0,
       maintainabilityIndex: metrics.maintainability_index || metrics.maintainabilityIndex || 0,
       duplicateLines: metrics.duplicate_lines || metrics.duplicateLines || 0,
-      testCoverage: metrics.test_coverage || metrics.testCoverage || null
+      testCoverage: metrics.test_coverage || metrics.testCoverage || null,
+      commentLines: metrics.comment_lines || metrics.commentLines || 0,
+      blankLines: metrics.blank_lines || metrics.blankLines || 0,
+      functionCount: metrics.function_count || metrics.functionCount || 0,
+      classCount: metrics.class_count || metrics.classCount || 0,
+      commentRatio: metrics.comment_ratio || metrics.commentRatio || 0,
+      complexityPerFunction: metrics.complexity_per_function || metrics.complexityPerFunction || null
     };
   }
 
   /**
-   * Validate uploaded file
+   * Validate uploaded file (enhanced with dynamic limits)
    * @param {File} file - File to validate
+   * @param {Object} [limits] - Optional limits from server
    * @throws {Error} If file is invalid
    */
-  validateFile(file) {
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    const allowedTypes = [
-      'text/plain',
-      'text/javascript',
-      'application/javascript',
-      'text/x-python',
-      'text/x-java-source',
-      'text/x-c',
-      'text/x-c++',
-      'text/x-csharp',
-      'text/html',
-      'text/css',
-      'application/json',
-      'text/xml',
-      'application/xml'
-    ];
-
-    const allowedExtensions = [
+  validateFile(file, limits = null) {
+    // Use server-provided limits or fallback to defaults
+    const maxSizeKB = limits?.max_file_size_kb || 5120; // 5MB default
+    const maxSizeBytes = maxSizeKB * 1024;
+    const maxLines = limits?.max_lines || 10000;
+    const supportedExtensions = limits?.supported_extensions || [
       '.js', '.jsx', '.ts', '.tsx',
       '.py', '.java', '.c', '.cpp', '.cc', '.cxx',
       '.cs', '.html', '.htm', '.css', '.json',
@@ -275,16 +307,21 @@ class AnalysisService {
       throw new Error('No file provided');
     }
 
-    if (file.size > maxSize) {
-      throw new Error(`File size exceeds maximum limit of ${maxSize / (1024 * 1024)}MB`);
+    if (file.size > maxSizeBytes) {
+      throw new Error(`File size exceeds maximum limit of ${maxSizeKB / 1024}MB`);
     }
 
     const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
-    const isValidType = allowedTypes.includes(file.type) || 
-                       allowedExtensions.includes(fileExtension);
+    const isValidExtension = supportedExtensions.includes(fileExtension);
 
-    if (!isValidType) {
-      throw new Error(`File type not supported. Allowed extensions: ${allowedExtensions.join(', ')}`);
+    if (!isValidExtension) {
+      throw new Error(`File type not supported. Allowed extensions: ${supportedExtensions.join(', ')}`);
+    }
+
+    // Additional validation for text files
+    if (file.type && !file.type.startsWith('text/') && 
+        !['application/javascript', 'application/json', 'application/xml'].includes(file.type)) {
+      console.warn('File MIME type may not be supported:', file.type);
     }
   }
 

@@ -6,8 +6,14 @@ from passlib.context import CryptContext
 from app.core.config import settings
 from app.models.users import UserRole
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Password hashing - using pbkdf2_sha256 as fallback if bcrypt has issues
+try:
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    # Test bcrypt functionality
+    pwd_context.hash("test")
+except Exception as e:
+    print(f"Warning: bcrypt not working ({e}), falling back to pbkdf2_sha256")
+    pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # JWT settings
 ALGORITHM = "HS256"

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { EyeIcon, EyeOffIcon, UserPlusIcon } from 'lucide-react';
+import { Eye, EyeOff, UserPlus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export function Signup() {
@@ -10,14 +10,13 @@ export function Signup() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState({});
-  const [signupError, setSignupError] = useState('');
+
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { register } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setSignupError('');
     setErrors({});
 
     const newErrors = {};
@@ -57,7 +56,7 @@ export function Signup() {
       navigate('/');
     } catch (error) {
       console.error('Registration failed:', error);
-      setSignupError(error.message || 'Registration failed. Please try again.');
+      // Error notification is now handled by AuthContext
     } finally {
       setIsLoading(false);
     }
@@ -81,9 +80,7 @@ export function Signup() {
           </p>
         </div>
 
-        {signupError && (
-          <p className="text-sm text-red-600 text-center">{signupError}</p>
-        )}
+
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="rounded-md shadow-sm -space-y-px">
@@ -143,9 +140,9 @@ export function Signup() {
                 onClick={() => setShowPassword(!showPassword)}
               >
                 {showPassword ? (
-                  <EyeOffIcon className="h-5 w-5 text-gray-400" />
+                  <EyeOff className="h-5 w-5 text-gray-400" />
                 ) : (
-                  <EyeIcon className="h-5 w-5 text-gray-400" />
+                  <Eye className="h-5 w-5 text-gray-400" />
                 )}
               </button>
               {errors.password && (
@@ -184,7 +181,7 @@ export function Signup() {
               }`}
             >
               <span className="absolute left-0 inset-y-0 flex items-center pl-3">
-                <UserPlusIcon className="h-5 w-5 text-indigo-500 group-hover:text-indigo-400" />
+                <UserPlus className="h-5 w-5 text-indigo-500 group-hover:text-indigo-400" />
               </span>
               {isLoading ? 'Creating account...' : 'Sign up'}
             </button>
