@@ -57,7 +57,7 @@
   - Add loading states during authentication checks
   - _Requirements: 6.1, 6.5_
 
-- [-] 5. Enhance CodeReview page with Monaco Editor and API integration
+- [x] 5. Enhance CodeReview page with Monaco Editor and API integration
 - [x] 5.1 Replace textarea with Monaco Editor in CodeReview page
   - Integrate MonacoEditor component into the existing CodeReview page
   - Update state management to work with Monaco Editor
@@ -70,7 +70,7 @@
   - Update ReviewResults component to display structured analysis data
   - _Requirements: 2.1, 2.2, 2.4, 5.1, 5.2_
 
-- [-] 5.3 Add file upload functionality to CodeReview page
+- [x] 5.3 Add file upload functionality to CodeReview page
   - Implement file selection and upload in the "Upload File" tab
   - Connect file upload to Monaco Editor content loading
   - Add drag-and-drop file upload support
