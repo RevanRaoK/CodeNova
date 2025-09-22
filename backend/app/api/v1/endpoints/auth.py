@@ -1,4 +1,5 @@
 from datetime import timedelta
+import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -12,6 +13,7 @@ from app.schemas.user import (
     PasswordResetRequest, PasswordReset, UserRoleUpdate
 )
 from app.services.auth_service import AuthService
+from app.services.oauth_service import google_oauth_service
 
 # OAuth2 scheme for token authentication
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -193,3 +195,108 @@ def password_reset(
     # In a real application, you would validate the reset token
     # and update the user's password
     return {"message": "Password has been reset successfully"}
+
+@router.get("/google")
+def google_oauth_login() -> Any:
+    """Initiate Google OAuth flow"""
+    try:
+        # Generate state parameter for CSRF protection
+        state = "oauth_state_" + str(hash(str(datetime.datetime.utcnow())))
+        
+        # Get authorization URL
+        auth_url = google_oauth_service.get_authorization_url(state)
+        
+        return {
+            "authorization_url": auth_url,
+            "state": state
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to initiate OAuth flow: {str(e)}"
+        )
+
+@router.get("/google/callback")
+async def google_oauth_callback(
+    code: str,
+    state: str = None,
+    error: str = None,
+    db: Session = Depends(get_db)
+) -> Any:
+    """Handle Google OAuth callback"""
+    try:
+        # Check for OAuth errors
+        if error:
+            raise HTTPException(
+                status_code=400,
+                detail=f"OAuth error: {error}"
+            )
+        
+        if not code:
+            raise HTTPException(
+                status_code=400,
+                detail="Authorization code not provided"
+            )
+        
+        # Authenticate with Google
+        result = await google_oauth_service.authenticate_with_google(db, code)
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"OAuth authentication failed: {str(e)}"
+        )
+
+@router.post("/google/token")
+async def google_token_login(
+    google_token: dict,
+    db: Session = Depends(get_db)
+) -> Any:
+    """Authenticate with Google ID token (for frontend-initiated OAuth)"""
+    try:
+        id_token_str = google_token.get("credential") or google_token.get("id_token")
+        
+        if not id_token_str:
+            raise HTTPException(
+                status_code=400,
+                detail="Google ID token not provided"
+            )
+        
+        # Verify ID token and get user info
+        user_info = google_oauth_service.verify_id_token(id_token_str)
+        
+        # Create or update user
+        user = google_oauth_service.create_or_update_user(db, user_info)
+        
+        # Generate JWT tokens for our application
+        tokens = AuthService.create_user_tokens(db, user)
+        
+        return {
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'full_name': user.full_name,
+                'role': user.role.value,
+                'is_active': user.is_active,
+                'is_verified': user.is_verified,
+                'profile_picture_url': user.profile_picture_url,
+                'oauth_provider': user.oauth_provider,
+                'created_at': user.created_at.isoformat(),
+                'updated_at': user.updated_at.isoformat()
+            },
+            'access_token': tokens['access_token'],
+            'refresh_token': tokens['refresh_token'],
+            'token_type': tokens['token_type']
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Google token authentication failed: {str(e)}"
+        )

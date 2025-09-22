@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, UserPlus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import GoogleOAuthButton from '../components/auth/GoogleOAuthButton';
 
 export function Signup() {
   const [name, setName] = useState('');
@@ -13,7 +14,7 @@ export function Signup() {
 
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
-  const { register } = useAuth();
+  const { register, loginWithGoogle } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -62,6 +63,24 @@ export function Signup() {
     }
   };
 
+  const handleGoogleSuccess = async (credentialResponse) => {
+    try {
+      setIsLoading(true);
+      await loginWithGoogle(credentialResponse);
+      navigate('/');
+    } catch (error) {
+      console.error('Google signup failed:', error);
+      // Error notification is handled by AuthContext
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleError = (error) => {
+    console.error('Google OAuth error:', error);
+    setErrors({ general: 'Google signup failed. Please try again.' });
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
@@ -80,7 +99,34 @@ export function Signup() {
           </p>
         </div>
 
+        {/* Google OAuth Button */}
+        <div className="mt-6">
+          <GoogleOAuthButton
+            onSuccess={handleGoogleSuccess}
+            onError={handleGoogleError}
+            disabled={isLoading}
+            text="signup_with"
+          />
+        </div>
 
+        {/* Divider */}
+        <div className="mt-6">
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300" />
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-gray-50 text-gray-500">Or continue with email</span>
+            </div>
+          </div>
+        </div>
+
+        {/* General Error Message */}
+        {errors.general && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <p className="text-sm text-red-600">{errors.general}</p>
+          </div>
+        )}
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="rounded-md shadow-sm -space-y-px">

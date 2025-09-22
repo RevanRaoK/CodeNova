@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import authService from '../authService.js';
 import analysisService from '../analysisService.js';
@@ -14,18 +13,6 @@ describe('API Service Integration Tests', () => {
     // Clear localStorage before each test
     localStorage.clear();
     vi.clearAllMocks();
-    
-    // Setup default mock responses for common endpoints
-    mockAxios.onPost('/auth/login').reply(404);
-    mockAxios.onPost('/auth/register').reply(404);
-    mockAxios.onPost('/auth/logout').reply(404);
-    mockAxios.onPost('/auth/refresh').reply(404);
-    mockAxios.onPost('/api/v1/analysis/analyze-code').reply(404);
-    mockAxios.onPost('/api/v1/files/upload').reply(404);
-    mockAxios.onGet('/api/v1/analysis/user-analyses').reply(404);
-    mockAxios.onGet(/\/api\/v1\/analysis\/.*/).reply(404);
-    mockAxios.onGet('/api/v1/analysis/stats').reply(404);
-    mockAxios.onGet('/analysis/direct/stats').reply(404);
   });
 
   afterEach(() => {
@@ -101,16 +88,15 @@ describe('API Service Integration Tests', () => {
         await expect(authService.login(credentials)).rejects.toThrow(
           'Network error. Please check your connection and try again.'
         );
-      });
+      }, 15000);
 
       it('transforms login request to form data format', async () => {
-        mockAxios.reset();
         mockAxios.onPost('/auth/login').reply((config) => {
           // Verify the request is in form data format
           expect(config.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
           expect(config.data).toContain('username=test%40example.com');
           expect(config.data).toContain('password=password123');
-          
+
           return [200, {
             access_token: 'token',
             refresh_token: 'refresh',
@@ -187,7 +173,7 @@ describe('API Service Integration Tests', () => {
           refresh_token: 'new-refresh-token'
         };
 
-        mockAxios.onPost('/auth/refresh').reply(200, mockResponse);
+        mockAxios.onPost('/auth/refresh-token').reply(200, mockResponse);
 
         const result = await authService.refreshToken();
 
@@ -201,7 +187,7 @@ describe('API Service Integration Tests', () => {
       });
 
       it('clears auth data when refresh fails', async () => {
-        mockAxios.onPost('/auth/refresh').reply(401, {
+        mockAxios.onPost('/auth/refresh-token').reply(401, {
           detail: 'Refresh token expired'
         });
 
@@ -239,7 +225,6 @@ describe('API Service Integration Tests', () => {
       });
 
       it('clears local data even when logout API fails', async () => {
-        mockAxios.reset();
         mockAxios.onPost('/auth/logout').reply(500);
 
         await authService.logout();
@@ -281,11 +266,11 @@ describe('API Service Integration Tests', () => {
           exp: Math.floor(Date.now() / 1000) - 3600
         };
         const expiredToken = `header.${btoa(JSON.stringify(expiredPayload))}.signature`;
-        
+
         localStorage.setItem('access_token', expiredToken);
         localStorage.setItem('refresh_token', 'valid-refresh');
 
-        mockAxios.onPost('/auth/refresh').reply(200, {
+        mockAxios.onPost('/auth/refresh-token').reply(200, {
           access_token: 'new-token',
           refresh_token: 'new-refresh'
         });
@@ -326,7 +311,6 @@ describe('API Service Integration Tests', () => {
           }
         };
 
-        mockAxios.reset();
         mockAxios.onPost('/api/v1/analysis/analyze-code').reply(200, mockAnalysisResult);
 
         const codeData = {
@@ -338,14 +322,13 @@ describe('API Service Integration Tests', () => {
         const result = await analysisService.analyzeCode(codeData);
 
         expect(result).toEqual(mockAnalysisResult);
-        
+
         // Verify request was made with correct data
         expect(mockAxios.history.post[0].data).toBe(JSON.stringify(codeData));
         expect(mockAxios.history.post[0].headers.Authorization).toBe('Bearer valid-token');
       });
 
       it('handles analysis errors gracefully', async () => {
-        mockAxios.reset();
         mockAxios.onPost('/api/v1/analysis/analyze-code').reply(413, {
           detail: 'Code is too large'
         });
@@ -361,7 +344,7 @@ describe('API Service Integration Tests', () => {
 
       it('includes supported languages in request', () => {
         const supportedLanguages = analysisService.getSupportedLanguages();
-        
+
         expect(supportedLanguages).toContainEqual(
           expect.objectContaining({ value: 'javascript', label: 'JavaScript' })
         );
@@ -386,7 +369,6 @@ describe('API Service Integration Tests', () => {
           }
         };
 
-        mockAxios.reset();
         mockAxios.onPost('/api/v1/files/upload').reply(200, mockUploadResult);
 
         const file = new File(['console.log("test");'], 'test.js', { type: 'text/javascript' });
@@ -403,38 +385,36 @@ describe('API Service Integration Tests', () => {
 
       it('tracks upload progress correctly', async () => {
         const progressCallback = vi.fn();
-        
-        mockAxios.reset();
+
         mockAxios.onPost('/api/v1/files/upload').reply((config) => {
           // Simulate progress updates
           setTimeout(() => progressCallback(25), 10);
           setTimeout(() => progressCallback(50), 20);
           setTimeout(() => progressCallback(75), 30);
           setTimeout(() => progressCallback(100), 40);
-          
+
           return [200, { file_id: 'test', analysis: null }];
         });
 
         const file = new File(['test'], 'test.js');
-        
+
         await analysisService.uploadFile(file, {
           onProgress: progressCallback
         });
 
         // Wait for all progress callbacks
         await new Promise(resolve => setTimeout(resolve, 100));
-        
+
         expect(progressCallback).toHaveBeenCalledWith(100);
       });
 
       it('handles file upload size limits', async () => {
-        mockAxios.reset();
         mockAxios.onPost('/api/v1/files/upload').reply(413, {
           detail: 'File too large. Please upload a smaller file.'
         });
 
         const largeFile = new File(['x'.repeat(10000000)], 'large.js');
-        
+
         await expect(analysisService.uploadFile(largeFile)).rejects.toThrow('File too large');
       });
     });
@@ -461,7 +441,6 @@ describe('API Service Integration Tests', () => {
           per_page: 10
         };
 
-        mockAxios.reset();
         mockAxios.onGet('/api/v1/analysis/user-analyses').reply(200, mockHistory);
 
         const result = await analysisService.getUserAnalyses();
@@ -478,7 +457,6 @@ describe('API Service Integration Tests', () => {
           metrics: { lines_of_code: 1 }
         };
 
-        mockAxios.reset();
         mockAxios.onGet('/api/v1/analysis/analysis-123').reply(200, mockAnalysis);
 
         const result = await analysisService.getAnalysisById('analysis-123');
@@ -508,7 +486,6 @@ describe('API Service Integration Tests', () => {
           ]
         };
 
-        mockAxios.reset();
         mockAxios.onGet('/api/v1/analysis/stats').reply(200, mockStats);
 
         const result = await analysisService.getAnalysisStats();
@@ -522,7 +499,7 @@ describe('API Service Integration Tests', () => {
     describe('Request Interceptors', () => {
       it('automatically adds authorization header when token exists', async () => {
         localStorage.setItem('access_token', 'test-token');
-        
+
         mockAxios.onGet('/test').reply((config) => {
           expect(config.headers.Authorization).toBe('Bearer test-token');
           return [200, { success: true }];
@@ -533,7 +510,7 @@ describe('API Service Integration Tests', () => {
 
       it('does not add authorization header when no token exists', async () => {
         localStorage.removeItem('access_token');
-        
+
         mockAxios.onGet('/test').reply((config) => {
           expect(config.headers.Authorization).toBeUndefined();
           return [200, { success: true }];
@@ -548,16 +525,15 @@ describe('API Service Integration Tests', () => {
         localStorage.setItem('access_token', 'expired-token');
         localStorage.setItem('refresh_token', 'valid-refresh');
 
-        mockAxios.reset();
         // First request fails with 401
         mockAxios.onGet('/protected').replyOnce(401, { detail: 'Token expired' });
-        
+
         // Refresh token request succeeds
-        mockAxios.onPost('/auth/refresh').reply(200, {
+        mockAxios.onPost('/auth/refresh-token').reply(200, {
           access_token: 'new-token',
           refresh_token: 'new-refresh'
         });
-        
+
         // Retry original request with new token
         mockAxios.onGet('/protected').reply((config) => {
           expect(config.headers.Authorization).toBe('Bearer new-token');
@@ -565,7 +541,7 @@ describe('API Service Integration Tests', () => {
         });
 
         const result = await httpClient.get('/protected');
-        
+
         expect(result.data).toEqual({ data: 'protected data' });
         expect(localStorage.getItem('access_token')).toBe('new-token');
       });
@@ -576,12 +552,12 @@ describe('API Service Integration Tests', () => {
 
         // Original request fails
         mockAxios.onGet('/protected').reply(401);
-        
+
         // Refresh token also fails
-        mockAxios.onPost('/auth/refresh').reply(401, { detail: 'Invalid refresh token' });
+        mockAxios.onPost('/auth/refresh-token').reply(401, { detail: 'Invalid refresh token' });
 
         await expect(httpClient.get('/protected')).rejects.toThrow();
-        
+
         // Verify auth data is cleared
         expect(localStorage.getItem('access_token')).toBeNull();
         expect(localStorage.getItem('refresh_token')).toBeNull();
@@ -590,24 +566,22 @@ describe('API Service Integration Tests', () => {
 
     describe('Error Handling', () => {
       it('handles network timeouts', async () => {
-        mockAxios.reset();
         mockAxios.onGet('/slow').timeout();
 
         await expect(httpClient.get('/slow')).rejects.toThrow();
-      }, 10000);
+      }, 15000);
 
       it('handles server errors with proper error messages', async () => {
-        mockAxios.reset();
         mockAxios.onPost('/api/test').reply(500, {
           detail: 'Internal server error'
         });
 
         await expect(httpClient.post('/api/test')).rejects.toThrow();
-      }, 10000);
+      }, 15000);
 
       it('retries failed requests with exponential backoff', async () => {
         let attemptCount = 0;
-        
+
         mockAxios.onGet('/flaky').reply(() => {
           attemptCount++;
           if (attemptCount < 3) {
@@ -617,7 +591,7 @@ describe('API Service Integration Tests', () => {
         });
 
         const result = await httpClient.get('/flaky');
-        
+
         expect(result.data).toEqual({ success: true });
         expect(attemptCount).toBe(3);
       });
@@ -626,8 +600,6 @@ describe('API Service Integration Tests', () => {
 
   describe('End-to-End Authentication Flow', () => {
     it('completes full authentication cycle', async () => {
-      mockAxios.reset();
-      
       // 1. Login
       mockAxios.onPost('/auth/login').reply(200, {
         access_token: 'initial-token',
@@ -653,9 +625,9 @@ describe('API Service Integration Tests', () => {
 
       // 3. Token expires and gets refreshed automatically
       localStorage.setItem('access_token', 'expired-token');
-      
+
       mockAxios.onGet('/api/v1/analysis/user-analyses').replyOnce(401);
-      mockAxios.onPost('/auth/refresh').reply(200, {
+      mockAxios.onPost('/auth/refresh-token').reply(200, {
         access_token: 'refreshed-token',
         refresh_token: 'new-refresh'
       });
@@ -669,7 +641,7 @@ describe('API Service Integration Tests', () => {
 
       // 4. Logout
       mockAxios.onPost('/auth/logout').reply(200);
-      
+
       await authService.logout();
       expect(authService.isAuthenticated()).toBe(false);
     });

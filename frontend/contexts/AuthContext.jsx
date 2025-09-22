@@ -140,6 +140,33 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const loginWithGoogle = async (credentialResponse) => {
+    console.log('🔐 AuthContext: Starting Google login', credentialResponse);
+    try {
+      setIsLoading(true);
+      console.log('📡 Calling authService.loginWithGoogle...');
+      const result = await authService.loginWithGoogle(credentialResponse);
+      console.log('✅ AuthService response:', result);
+      
+      setUser(result.user);
+      setToken(result.token);
+      setIsAuthenticated(true);
+      console.log('🎉 User state updated, showing success message');
+      showSuccess(`Welcome, ${result.user.full_name || result.user.email}!`);
+      return result;
+    } catch (error) {
+      console.error('❌ AuthContext: Google login failed:', error);
+      setUser(null);
+      setToken(null);
+      setIsAuthenticated(false);
+      showError(error.message || 'Google login failed. Please try again.');
+      throw error;
+    } finally {
+      setIsLoading(false);
+      console.log('🏁 AuthContext: Login process completed');
+    }
+  };
+
   const value = {
     user,
     token,
@@ -148,7 +175,8 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
-    refreshToken
+    refreshToken,
+    loginWithGoogle
   };
 
   return (

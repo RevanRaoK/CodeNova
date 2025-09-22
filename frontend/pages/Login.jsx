@@ -2,20 +2,29 @@ import React, { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { Eye, EyeOff, LogIn } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import GoogleOAuthButton from '../components/auth/GoogleOAuthButton'
 
 export function Login() {
+  console.log('🔄 Login component: Starting to render');
+  
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [errors, setErrors] = useState({})
-
   const [isLoading, setIsLoading] = useState(false)
+  
+  console.log('🔄 Login component: State initialized');
+  
   const navigate = useNavigate()
   const location = useLocation()
-  const { login } = useAuth()
+  const { login, loginWithGoogle } = useAuth()
+  
+  console.log('🔄 Login component: Hooks loaded');
   
   // Get the intended destination from location state, default to home
   const from = location.state?.from?.pathname || '/'
+  
+  console.log('🔄 Login component: Ready to render JSX');
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -51,6 +60,48 @@ export function Login() {
     }
   }
 
+  const handleGoogleSuccess = async (credentialResponse) => {
+    console.log('🚀 Login page: handleGoogleSuccess called', credentialResponse);
+    try {
+      setIsLoading(true)
+      console.log('📞 Login page: Calling loginWithGoogle from AuthContext');
+      await loginWithGoogle(credentialResponse)
+      console.log('✅ Login page: loginWithGoogle completed, navigating to:', from);
+      navigate(from, { replace: true })
+    } catch (error) {
+      console.error('❌ Login page: Google login failed:', error)
+      // Error notification is handled by AuthContext
+    } finally {
+      setIsLoading(false)
+      console.log('🏁 Login page: handleGoogleSuccess completed');
+    }
+  }
+
+  const handleGoogleError = (error) => {
+    console.error('Google OAuth error:', error)
+    setErrors({ general: 'Google login failed. Please try again.' })
+  }
+
+  console.log('🎨 Login component: Rendering JSX');
+
+  // Simple error fallback
+  if (errors.general && errors.general.includes('Authentication system not available')) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-red-600">Authentication Error</h2>
+          <p className="mt-2 text-gray-600">{errors.general}</p>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Refresh Page
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
@@ -69,7 +120,34 @@ export function Login() {
           </p>
         </div>
 
+        {/* Google OAuth Button */}
+        <div className="mt-6">
+          <GoogleOAuthButton
+            onSuccess={handleGoogleSuccess}
+            onError={handleGoogleError}
+            disabled={isLoading}
+            text="signin_with"
+          />
+        </div>
 
+        {/* Divider */}
+        <div className="mt-6">
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300" />
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-gray-50 text-gray-500">Or continue with email</span>
+            </div>
+          </div>
+        </div>
+
+        {/* General Error Message */}
+        {errors.general && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <p className="text-sm text-red-600">{errors.general}</p>
+          </div>
+        )}
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="rounded-md shadow-sm -space-y-px">

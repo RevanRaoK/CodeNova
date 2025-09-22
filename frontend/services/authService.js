@@ -120,7 +120,7 @@ class AuthService {
         throw new Error('No refresh token available');
       }
 
-      const response = await httpClient.post('/auth/refresh', {
+      const response = await httpClient.post('/auth/refresh-token', {
         refresh_token: refreshToken
       });
 
@@ -300,6 +300,37 @@ class AuthService {
     } catch (error) {
       console.error('Auto token refresh failed:', error);
       return false;
+    }
+  }
+
+  /**
+   * Login with Google OAuth
+   * @param {Object} credentialResponse - Google OAuth credential response
+   * @returns {Promise<Object>} Authentication response
+   */
+  async loginWithGoogle(credentialResponse) {
+    try {
+      const response = await httpClient.post('/auth/google/token', {
+        credential: credentialResponse.credential,
+        id_token: credentialResponse.credential
+      });
+
+      const { access_token, refresh_token, token_type, user } = response.data;
+      
+      // Store tokens and user data
+      this.setToken(access_token);
+      this.setRefreshToken(refresh_token);
+      this.setUserData(user);
+
+      return {
+        user,
+        token: access_token,
+        refreshToken: refresh_token,
+        tokenType: token_type
+      };
+    } catch (error) {
+      console.error('Google OAuth login failed:', error);
+      throw this.handleAuthError(error);
     }
   }
 }

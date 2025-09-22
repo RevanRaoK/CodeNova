@@ -13,9 +13,15 @@ class Settings(BaseSettings):
     RABBITMQ_URL: str = "amqp://codenova:rabbitmq_password@localhost:5672/"
     SECRET_KEY: str = "your-super-secret-key-change-this-in-production-min-32-chars"
     ENVIRONMENT: str = "development"
+    
+    # Google OAuth Configuration
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/google/callback"
 
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"  # Ignore extra environment variables like VITE_*
 
 settings = Settings()
