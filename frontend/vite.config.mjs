@@ -21,7 +21,14 @@ export default async () => {
     ],
     optimizeDeps: {
       force: true,
-      include: ['monaco-editor'],
+      include: [
+        '@monaco-editor/react',
+        'react',
+        'react-dom',
+        'react-router-dom',
+        'axios'
+      ],
+      exclude: ['monaco-editor'],
       esbuildOptions: {
         loader: {
           '.js': 'jsx',
@@ -29,16 +36,43 @@ export default async () => {
       },
     },
     build: {
+      target: 'es2020',
+      minify: 'esbuild',
+      sourcemap: false,
       rollupOptions: {
         output: {
           manualChunks: {
-            monaco: ['monaco-editor'],
+            // Monaco Editor and related chunks
+            'monaco-editor': ['monaco-editor'],
+            'monaco-react': ['@monaco-editor/react'],
+            
+            // React and core libraries
+            'react-vendor': ['react', 'react-dom'],
+            'router': ['react-router-dom'],
+            
+            // UI and utility libraries
+            'ui-libs': ['lucide-react', 'recharts'],
+            'utils': ['axios'],
+          },
+          // Optimize chunk sizes
+          chunkFileNames: (chunkInfo) => {
+            const facadeModuleId = chunkInfo.facadeModuleId ? chunkInfo.facadeModuleId.split('/').pop() : 'chunk';
+            return `assets/[name]-[hash].js`;
           },
         },
       },
+      // Increase chunk size warning limit for Monaco Editor
+      chunkSizeWarningLimit: 1000,
     },
     define: {
       global: 'globalThis',
+    },
+    worker: {
+      format: 'es',
+    },
+    // Performance optimizations
+    esbuild: {
+      drop: ['console', 'debugger'], // Remove console.log and debugger in production
     },
   });
 };

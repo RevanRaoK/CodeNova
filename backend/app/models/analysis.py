@@ -63,8 +63,15 @@ class DirectAnalysis(Base):
     # Error information for failed analyses
     error_message = Column(Text, nullable=True)
     
+    # AST-related fields for enhanced analysis
+    ast_metadata = Column(JSON, nullable=True)  # AST parsing results and structure info
+    code_patterns = Column(JSON, nullable=True)  # Detected code patterns from AST analysis
+    issue_ids = Column(JSON, nullable=True)  # Generated unique issue IDs for tracking
+    ast_processing_time = Column(Float, nullable=True)  # Performance tracking for AST operations
+    
     # Relationships
     user = relationship("User", back_populates="direct_analyses")
+    issues = relationship("Issue", back_populates="analysis", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<DirectAnalysis(id={self.id}, user_id={self.user_id}, language={self.language}, status={self.status})>"

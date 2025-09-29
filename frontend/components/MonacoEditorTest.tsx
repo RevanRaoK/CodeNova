@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { MonacoEditor } from './MonacoEditor';
-import * as monaco from 'monaco-editor';
+import type * as monaco from 'monaco-editor';
 
 export const MonacoEditorTest: React.FC = () => {
   const [code, setCode] = useState(`// Welcome to Monaco Editor!

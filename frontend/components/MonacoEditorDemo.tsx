@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { MonacoEditor, MonacoEditorWithIssues, createMarkerFromIssue, navigateToIssue } from './MonacoEditor';
-import * as monaco from 'monaco-editor';
+import type * as monaco from 'monaco-editor';
 
 // Mock analysis issues for demonstration
 const mockIssues = [

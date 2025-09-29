@@ -5,7 +5,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:prod": "NODE_ENV=production vite build",
+    "build:analyze": "vite build --mode analyze",
     "start": "vite preview",
+    "preview": "vite preview --port 3000",
+    "preview:prod": "vite build && vite preview --port 3000",
     "lint": "echo \"No linter configured\"",
     "test": "vitest",
     "test:ui": "vitest --ui",
@@ -16,10 +20,15 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest --watch",
     "test:all": "vitest run",
-    "test:auth": "vitest run contexts/__tests__/AuthContext.test.jsx services/__tests__/apiService.integration.test.js"
+    "test:auth": "vitest run contexts/__tests__/AuthContext.test.jsx services/__tests__/apiService.integration.test.js",
+    "clean": "rm -rf dist node_modules/.vite",
+    "clean:cache": "rm -rf node_modules/.vite .vite",
+    "typecheck": "tsc --noEmit",
+    "size-check": "npm run build && npx bundlesize"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
+    "@react-oauth/google": "^0.12.2",
     "@tailwindcss/postcss": "^4.1.11",
     "axios": "^1.7.9",
     "lucide-react": "^0.468.0",
@@ -29,8 +38,7 @@
     "react-router-dom": "^7.1.1",
     "recharts": "^3.1.0",
     "testing-library": "^0.0.2",
-    "web-vitals": "^5.0.3",
-    "@react-oauth/google": "^0.12.1"
+    "web-vitals": "^5.0.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.11",

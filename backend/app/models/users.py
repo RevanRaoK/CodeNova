@@ -37,6 +37,7 @@ class User(Base):
     repositories = relationship("Repository", back_populates="user")
     tokens = relationship("Token", back_populates="user")
     direct_analyses = relationship("DirectAnalysis", back_populates="user")
+    feedback_records = relationship("FeedbackRecord", back_populates="user")
 
 
 class Token(Base):

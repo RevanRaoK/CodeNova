@@ -199,14 +199,22 @@ def analyze_code_direct(
     Analyze code directly using Gemini AI with enhanced validation and error handling.
     This endpoint is used by the frontend CodeReview page for direct code analysis.
     
-    Requirements covered: 2.1, 2.3
+    Enhanced with AST parsing and issue ID generation for feedback pipeline.
+    
+    Requirements covered: 1.1, 1.2, 2.1, 2.3
     """
     from app.services.ai_service import aiservice  # local import
+    from app.utils.ast_parser import ASTParser
+    from app.services.issue_id_service import IssueIDService
     
     analysis_id = str(uuid.uuid4())
     created_at = datetime.utcnow()
     
     print(f"Starting analysis for user {current_user.id}, analysis_id: {analysis_id}")
+    
+    # Initialize AST parser and issue ID service
+    ast_parser = ASTParser()
+    issue_id_service = IssueIDService()
     
     try:
         # Validate request size (additional check beyond Pydantic)
@@ -217,13 +225,27 @@ def analyze_code_direct(
                 detail=f"Code content too large: {code_size_kb:.1f}KB. Maximum allowed: 100KB"
             )
         
+        # Parse code using AST parser
+        print("Parsing code with AST parser...")
+        ast_start_time = datetime.utcnow()
+        ast_result = ast_parser.parse_code(request.code, request.language)
+        ast_end_time = datetime.utcnow()
+        ast_processing_time = (ast_end_time - ast_start_time).total_seconds()
+        
+        print(f"AST parsing completed in {ast_processing_time:.3f}s, valid: {ast_result.is_valid}")
+        
+        # Generate code hash for issue ID generation
+        code_hash = issue_id_service.generate_code_hash(request.code)
+        
         # Get code review suggestions from Gemini AI
         print("Calling AI service...")
         suggestions = aiservice.get_review_for_code(request.code)
         print(f"AI service returned {len(suggestions)} suggestions")
         
-        # Transform suggestions to structured issue dictionaries
+        # Transform suggestions to structured issue dictionaries with unique IDs
         issues = []
+        issue_ids = []
+        
         for i, suggestion in enumerate(suggestions):
             # Map AI service severities to frontend-expected severities
             ai_severity = suggestion.get('severity', 'info').lower()
@@ -239,10 +261,25 @@ def analyze_code_direct(
             }
             severity = severity_mapping.get(ai_severity, 'info')
             
+            # Generate unique issue ID based on code content and suggestion
+            line_number = max(1, suggestion.get('line_number', 1))
+            location = {
+                'line': line_number,
+                'column': 1,
+                'analysis_id': analysis_id
+            }
+            
+            # Create pattern identifier from suggestion content
+            pattern = f"{severity}:{suggestion.get('comment', 'unknown')[:50]}"
+            
+            # Generate deterministic issue ID
+            issue_id = issue_id_service.generate_issue_id(code_hash, pattern, location)
+            issue_ids.append(issue_id)
+            
             issue = {
-                "id": f"{analysis_id}-{i}",
-                "line": max(1, suggestion.get('line_number', 1)),
-                "column": 1,  # Default column, could be enhanced
+                "id": issue_id,  # Use generated issue ID instead of sequential
+                "line": line_number,
+                "column": 1,  # Default column, could be enhanced with AST data
                 "severity": severity,
                 "message": suggestion.get('comment', 'No comment provided'),
                 "rule": "gemini-ai-review",
@@ -250,6 +287,9 @@ def analyze_code_direct(
                 "suggestion": suggestion.get('suggestion', suggestion.get('comment', ''))
             }
             issues.append(issue)
+            
+            # Track issue in service
+            issue_id_service.track_issue_resolution(issue_id, 'open')
         
         # Calculate enhanced metrics
         lines = request.code.split('\n')
@@ -315,7 +355,47 @@ def analyze_code_direct(
             errors_count = sum(1 for issue in issues if issue.get('severity') == 'error')
             warnings_count = sum(1 for issue in issues if issue.get('severity') == 'warning')
             
-            # Create database record
+            # Prepare AST metadata for storage
+            ast_metadata = None
+            code_patterns = None
+            
+            if ast_result.is_valid:
+                # Convert AST result to JSON-serializable format
+                ast_metadata = {
+                    'language': ast_result.language.value,
+                    'is_valid': ast_result.is_valid,
+                    'metadata': ast_result.metadata,
+                    'pattern_count': len(ast_result.patterns),
+                    'processing_time': ast_processing_time
+                }
+                
+                # Convert patterns to JSON-serializable format
+                code_patterns = []
+                for pattern in ast_result.patterns:
+                    pattern_dict = {
+                        'pattern_type': pattern.pattern_type.value,
+                        'name': pattern.name,
+                        'location': {
+                            'line': pattern.location.line,
+                            'column': pattern.location.column,
+                            'end_line': pattern.location.end_line,
+                            'end_column': pattern.location.end_column
+                        },
+                        'context': pattern.context,
+                        'complexity_score': pattern.complexity_score
+                    }
+                    code_patterns.append(pattern_dict)
+            else:
+                # Store error information if AST parsing failed
+                ast_metadata = {
+                    'language': ast_result.language.value,
+                    'is_valid': False,
+                    'error_message': ast_result.error_message,
+                    'processing_time': ast_processing_time
+                }
+                code_patterns = []
+            
+            # Create database record with AST fields
             db_analysis = DirectAnalysis(
                 id=analysis_id,
                 user_id=current_user.id,
@@ -338,7 +418,12 @@ def analyze_code_direct(
                 issues_count=len(issues),
                 errors_count=errors_count,
                 warnings_count=warnings_count,
-                file_size_bytes=len(request.code.encode('utf-8'))
+                file_size_bytes=len(request.code.encode('utf-8')),
+                # New AST-related fields
+                ast_metadata=ast_metadata,
+                code_patterns=code_patterns,
+                issue_ids=issue_ids,
+                ast_processing_time=ast_processing_time
             )
             
             db.add(db_analysis)
@@ -393,7 +478,12 @@ def analyze_code_direct(
                 lines_of_code=len(request.code.split('\n')),
                 issues_count=0,
                 errors_count=0,
-                warnings_count=0
+                warnings_count=0,
+                # Initialize AST fields as empty for failed analysis
+                ast_metadata=None,
+                code_patterns=None,
+                issue_ids=None,
+                ast_processing_time=None
             )
             db.add(failed_analysis)
             db.commit()

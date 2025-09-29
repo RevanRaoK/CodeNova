@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { OnMount, OnChange } from '@monaco-editor/react';
-import * as monaco from 'monaco-editor';
+import type * as monaco from 'monaco-editor';
 import {
     SUPPORTED_LANGUAGES,
     processUploadedFile,
@@ -8,6 +8,15 @@ import {
     isDragAndDropSupported,
     type FileUploadResult as UtilsFileUploadResult
 } from '../utils/fileUtils';
+import {
+    getOptimizedEditorOptions,
+    getLanguageOptimizations,
+    loadLanguageSupport,
+    createPerformanceMonitor,
+    optimizeMemoryUsage,
+    createDebouncedResizeHandler,
+    PERFORMANCE_THRESHOLDS
+} from '../utils/monacoOptimizations';
 
 // TypeScript interfaces for Monaco Editor component
 export interface MonacoEditorProps {
@@ -69,84 +78,82 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
     const [error, setError] = useState<string | null>(null);
     const [isDragOver, setIsDragOver] = useState(false);
     const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+    const [isLargeFile, setIsLargeFile] = useState(false);
+    
+    // Performance monitoring
+    const performanceMonitor = useRef(createPerformanceMonitor());
+    const memoryOptimizer = useRef<{ dispose: () => void } | null>(null);
+    const resizeHandler = useRef<{ handleResize: () => void; dispose: () => void } | null>(null);
 
-    // Enhanced editor options with responsive design and touch support
-    const defaultOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
-        // Core editor features
-        minimap: { enabled: window.innerWidth > 768 }, // Disable minimap on mobile
-        fontSize: window.innerWidth > 768 ? 14 : 12,
-        lineNumbers: 'on',
-        roundedSelection: false,
-        scrollBeyondLastLine: false,
-        automaticLayout: true,
-        wordWrap: 'on',
+    // Get optimized editor options based on content size and language
+    const getEditorOptions = useCallback(() => {
+        const baseOptions = {
+            readOnly,
+            ...options,
+        };
+        
+        const optimizedOptions = getOptimizedEditorOptions(value, baseOptions);
+        const languageOptions = getLanguageOptimizations(currentLanguage);
+        
+        return {
+            ...optimizedOptions,
+            ...languageOptions,
+        };
+    }, [value, currentLanguage, readOnly, options]);
 
-        // Code folding
-        folding: true,
-        foldingStrategy: 'indentation',
-        showFoldingControls: 'always',
-        foldingHighlight: true,
+    // Check if file is large and update state
+    useEffect(() => {
+        const lineCount = value.split('\n').length;
+        const fileSize = value.length;
+        const isLarge = lineCount > PERFORMANCE_THRESHOLDS.LARGE_FILE_LINES || 
+                       fileSize > PERFORMANCE_THRESHOLDS.LARGE_FILE_SIZE;
+        setIsLargeFile(isLarge);
+    }, [value]);
 
-        // Auto-completion and IntelliSense
-        quickSuggestions: {
-            other: true,
-            comments: true,
-            strings: true,
-        },
-        suggestOnTriggerCharacters: true,
-        acceptSuggestionOnCommitCharacter: true,
-        acceptSuggestionOnEnter: 'on',
-        tabCompletion: 'on',
-
-        // Error detection and markers
-        renderValidationDecorations: 'on',
-
-        // Find and replace
-        find: {
-            addExtraSpaceOnTop: false,
-            autoFindInSelection: 'never',
-            seedSearchStringFromSelection: 'always',
-        },
-
-        // Touch and mobile support
-        mouseWheelZoom: true,
-        multiCursorModifier: 'ctrlCmd',
-
-        // Accessibility
-        accessibilitySupport: 'auto',
-
-        // Performance
-        renderWhitespace: 'selection',
-        renderControlCharacters: false,
-
-        readOnly,
-        ...options,
-    };
-
-    const handleEditorDidMount: OnMount = (editor, monaco) => {
+    const handleEditorDidMount: OnMount = async (editor, monaco) => {
         editorRef.current = editor;
         monacoRef.current = monaco;
+
+        // Load language support dynamically
+        await loadLanguageSupport(currentLanguage);
 
         // Configure Monaco Editor settings
         monaco.editor.setTheme(currentTheme);
 
-        // Enable additional language features
-        monaco.languages.typescript.javascriptDefaults.setEagerModelSync(true);
-        monaco.languages.typescript.typescriptDefaults.setEagerModelSync(true);
+        // Enable additional language features only for supported languages
+        if (currentLanguage === 'typescript' || currentLanguage === 'javascript') {
+            monaco.languages.typescript.javascriptDefaults.setEagerModelSync(!isLargeFile);
+            monaco.languages.typescript.typescriptDefaults.setEagerModelSync(!isLargeFile);
 
-        // Configure TypeScript compiler options
-        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-            target: monaco.languages.typescript.ScriptTarget.ES2020,
-            allowNonTsExtensions: true,
-            moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
-            module: monaco.languages.typescript.ModuleKind.CommonJS,
-            noEmit: true,
-            esModuleInterop: true,
-            jsx: monaco.languages.typescript.JsxEmit.React,
-            reactNamespace: 'React',
-            allowJs: true,
-            typeRoots: ['node_modules/@types'],
-        });
+            // Configure TypeScript compiler options with performance considerations
+            monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+                target: monaco.languages.typescript.ScriptTarget.ES2020,
+                allowNonTsExtensions: true,
+                moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+                module: monaco.languages.typescript.ModuleKind.CommonJS,
+                noEmit: true,
+                esModuleInterop: true,
+                jsx: monaco.languages.typescript.JsxEmit.React,
+                reactNamespace: 'React',
+                allowJs: true,
+                typeRoots: ['node_modules/@types'],
+                // Disable expensive features for large files
+                noSemanticValidation: isLargeFile,
+                noSyntaxValidation: false, // Keep syntax validation
+            });
+
+            // Disable expensive diagnostics for large files
+            if (isLargeFile) {
+                monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+                    noSemanticValidation: true,
+                    noSuggestionDiagnostics: true,
+                });
+                monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+                    noSemanticValidation: true,
+                    noSuggestionDiagnostics: true,
+                });
+            }
+        }
 
         // Add click handler for markers/issues
         if (onIssueClick) {
@@ -172,21 +179,20 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
             console.log('Save shortcut pressed');
         });
 
-        // Responsive layout handling
-        const handleResize = () => {
-            editor.layout();
-        };
-        window.addEventListener('resize', handleResize);
+        // Set up performance monitoring
+        performanceMonitor.current.onRender();
+
+        // Set up memory optimization
+        memoryOptimizer.current = optimizeMemoryUsage(editor);
+
+        // Set up debounced resize handler
+        resizeHandler.current = createDebouncedResizeHandler(editor, isLargeFile ? 300 : 150);
+        window.addEventListener('resize', resizeHandler.current.handleResize);
 
         // Call the onMount callback if provided
         if (onMount) {
             onMount(editor, monaco);
         }
-
-        // Cleanup function
-        return () => {
-            window.removeEventListener('resize', handleResize);
-        };
     };
 
     const handleEditorChange: OnChange = (value) => {
@@ -194,12 +200,20 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
         setError(null); // Clear any previous errors
     };
 
-    const handleLanguageChange = useCallback((newLanguage: string) => {
+    const handleLanguageChange = useCallback(async (newLanguage: string) => {
         setCurrentLanguage(newLanguage);
+        
+        // Load language support dynamically
+        await loadLanguageSupport(newLanguage);
+        
         if (editorRef.current && monacoRef.current) {
             const model = editorRef.current.getModel();
             if (model) {
                 monacoRef.current.editor.setModelLanguage(model, newLanguage);
+                
+                // Update editor options for the new language
+                const languageOptions = getLanguageOptimizations(newLanguage);
+                editorRef.current.updateOptions(languageOptions);
             }
         }
     }, []);
@@ -315,6 +329,33 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
         }
     }, [language, currentLanguage, handleLanguageChange]);
 
+    // Update editor options when content changes (for performance optimization)
+    useEffect(() => {
+        if (editorRef.current) {
+            const newOptions = getEditorOptions();
+            editorRef.current.updateOptions(newOptions);
+        }
+    }, [getEditorOptions]);
+
+    // Cleanup effect
+    useEffect(() => {
+        return () => {
+            // Cleanup performance monitoring
+            performanceMonitor.current.reset();
+            
+            // Cleanup memory optimizer
+            if (memoryOptimizer.current) {
+                memoryOptimizer.current.dispose();
+            }
+            
+            // Cleanup resize handler
+            if (resizeHandler.current) {
+                window.removeEventListener('resize', resizeHandler.current.handleResize);
+                resizeHandler.current.dispose();
+            }
+        };
+    }, []);
+
     return (
         <div
             className={`border border-gray-300 rounded-md overflow-hidden relative ${className}`}
@@ -348,9 +389,16 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
                         )}
 
                         {value && (
-                            <span className="text-xs text-gray-500">
-                                {value.split('\n').length} lines, {formatFileSize(value.length)}
-                            </span>
+                            <div className="flex items-center space-x-2">
+                                <span className="text-xs text-gray-500">
+                                    {value.split('\n').length} lines, {formatFileSize(value.length)}
+                                </span>
+                                {isLargeFile && (
+                                    <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">
+                                        Performance Mode
+                                    </span>
+                                )}
+                            </div>
                         )}
                     </div>
 
@@ -423,12 +471,19 @@ export const MonacoEditor: React.FC<MonacoEditorProps> = ({
                     language={currentLanguage}
                     value={value}
                     theme={currentTheme}
-                    options={defaultOptions}
+                    options={getEditorOptions()}
                     onMount={handleEditorDidMount}
                     onChange={handleEditorChange}
                     loading={
                         <div className="flex items-center justify-center h-64">
-                            <div className="text-gray-500">Loading editor...</div>
+                            <div className="animate-pulse">
+                                <div className="text-gray-500 mb-2">Loading Monaco Editor...</div>
+                                {isLargeFile && (
+                                    <div className="text-xs text-gray-400">
+                                        Large file detected - optimizing performance...
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     }
                 />

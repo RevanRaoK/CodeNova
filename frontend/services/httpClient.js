@@ -1,8 +1,9 @@
 import axios from 'axios';
+import { env, logger } from '../utils/environment';
 
 // Create Axios instance with base configuration
 const httpClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1',
+  baseURL: `${env.apiUrl}/api/v1`,
   timeout: 30000, // 30 seconds timeout
   headers: {
     'Content-Type': 'application/json',
@@ -18,13 +19,13 @@ httpClient.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
     
-    // Log request for debugging (remove in production)
-    console.log(`Making ${config.method?.toUpperCase()} request to ${config.url}`);
+    // Log request for debugging
+    logger.debug(`Making ${config.method?.toUpperCase()} request to ${config.url}`);
     
     return config;
   },
   (error) => {
-    console.error('Request interceptor error:', error);
+    logger.error('Request interceptor error:', error);
     return Promise.reject(error);
   }
 );
@@ -32,8 +33,8 @@ httpClient.interceptors.request.use(
 // Response interceptor for error handling and token refresh
 httpClient.interceptors.response.use(
   (response) => {
-    // Log successful response (remove in production)
-    console.log(`Response received from ${response.config.url}:`, response.status);
+    // Log successful response
+    logger.debug(`Response received from ${response.config.url}:`, response.status);
     return response;
   },
   async (error) => {
@@ -60,7 +61,7 @@ httpClient.interceptors.response.use(
           return httpClient(originalRequest);
         }
       } catch (refreshError) {
-        console.error('Token refresh failed:', refreshError);
+        logger.error('Token refresh failed:', refreshError);
         // Clear tokens and redirect to login
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
@@ -72,17 +73,17 @@ httpClient.interceptors.response.use(
     // Handle other error types
     if (error.response) {
       // Server responded with error status
-      console.error('API Error:', {
+      logger.error('API Error:', {
         status: error.response.status,
         data: error.response.data,
         url: error.config?.url
       });
     } else if (error.request) {
       // Request was made but no response received
-      console.error('Network Error:', error.message);
+      logger.error('Network Error:', error.message);
     } else {
       // Something else happened
-      console.error('Request Setup Error:', error.message);
+      logger.error('Request Setup Error:', error.message);
     }
     
     return Promise.reject(error);
@@ -103,7 +104,7 @@ const retryRequest = async (error, retries = 3, delay = 1000) => {
     return Promise.reject(error);
   }
   
-  console.log(`Retrying request in ${delay}ms... (${retries} retries left)`);
+  logger.warn(`Retrying request in ${delay}ms... (${retries} retries left)`);
   
   await new Promise(resolve => setTimeout(resolve, delay));
   
