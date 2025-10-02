@@ -439,14 +439,16 @@ class LearningService:
     def evaluate_model_performance(
         self, 
         model_version_id: int,
-        evaluation_data: Optional[List[Dict[str, Any]]] = None
+        evaluation_data: Optional[List[Dict[str, Any]]] = None,
+        baseline_version_id: Optional[int] = None
     ) -> PerformanceMetrics:
         """
-        Evaluate the performance of a fine-tuned model.
+        Evaluate the performance of a fine-tuned model with comprehensive metrics.
         
         Args:
             model_version_id: ID of the model version to evaluate
             evaluation_data: Optional evaluation dataset (uses validation split if not provided)
+            baseline_version_id: Optional baseline model for comparison
             
         Returns:
             PerformanceMetrics: Comprehensive performance metrics
@@ -466,8 +468,13 @@ class LearningService:
         if not evaluation_data:
             evaluation_data = self._get_evaluation_dataset(model_version)
         
+        # Get baseline metrics for comparison
+        baseline_metrics = None
+        if baseline_version_id:
+            baseline_metrics = self._get_baseline_metrics(baseline_version_id)
+        
         # Calculate performance metrics
-        metrics = self._calculate_performance_metrics(evaluation_data, model_version)
+        metrics = self._calculate_performance_metrics(evaluation_data, model_version, baseline_metrics)
         
         # Update model version with performance metrics
         model_version.accuracy_score = metrics.accuracy_score
@@ -478,8 +485,8 @@ class LearningService:
         model_version.rejection_rate = metrics.rejection_rate
         model_version.improvement_score = metrics.improvement_over_baseline
         
-        # Store detailed performance metrics
-        model_version.performance_metrics = {
+        # Store detailed performance metrics with timestamp
+        performance_data = {
             'accuracy': metrics.accuracy_score,
             'precision': metrics.precision_score,
             'recall': metrics.recall_score,
@@ -489,13 +496,25 @@ class LearningService:
             'improvement_over_baseline': metrics.improvement_over_baseline,
             'pattern_performance': metrics.pattern_performance,
             'evaluation_date': datetime.utcnow().isoformat(),
-            'evaluation_data_size': len(evaluation_data)
+            'evaluation_data_size': len(evaluation_data),
+            'baseline_version_id': baseline_version_id,
+            'evaluation_method': 'automated_feedback_analysis'
         }
+        
+        # Store historical performance data
+        if not model_version.performance_metrics:
+            model_version.performance_metrics = {'evaluations': []}
+        elif 'evaluations' not in model_version.performance_metrics:
+            model_version.performance_metrics['evaluations'] = []
+        
+        model_version.performance_metrics['evaluations'].append(performance_data)
+        model_version.performance_metrics['latest'] = performance_data
         
         self.db.commit()
         
         logger.info(f"Model evaluation completed: accuracy={metrics.accuracy_score:.3f}, "
-                   f"acceptance_rate={metrics.acceptance_rate:.3f}")
+                   f"acceptance_rate={metrics.acceptance_rate:.3f}, "
+                   f"improvement={metrics.improvement_over_baseline:+.2f}%")
         
         return metrics
     
@@ -513,10 +532,27 @@ class LearningService:
         
         return [self._create_training_example(feedback) for feedback in recent_feedback]
     
+    def _get_baseline_metrics(self, baseline_version_id: int) -> Optional[Dict[str, float]]:
+        """Get baseline metrics for comparison."""
+        baseline_version = self.db.query(ModelVersion).filter(
+            ModelVersion.id == baseline_version_id
+        ).first()
+        
+        if not baseline_version or not baseline_version.performance_metrics:
+            return None
+        
+        latest_metrics = baseline_version.performance_metrics.get('latest', {})
+        return {
+            'accuracy': latest_metrics.get('accuracy', 0.0),
+            'acceptance_rate': latest_metrics.get('acceptance_rate', 0.0),
+            'f1_score': latest_metrics.get('f1_score', 0.0)
+        }
+    
     def _calculate_performance_metrics(
         self, 
         evaluation_data: List[Dict[str, Any]], 
-        model_version: ModelVersion
+        model_version: ModelVersion,
+        baseline_metrics: Optional[Dict[str, float]] = None
     ) -> PerformanceMetrics:
         """Calculate comprehensive performance metrics."""
         if not evaluation_data:
@@ -546,9 +582,14 @@ class LearningService:
         recall_score = min(0.95, 0.7 + (acceptance_rate / 100) * 0.2)
         f1_score = 2 * (precision_score * recall_score) / (precision_score + recall_score) if (precision_score + recall_score) > 0 else 0
         
-        # Calculate improvement over baseline (assuming baseline acceptance rate of 60%)
-        baseline_acceptance = 60.0
-        improvement_over_baseline = acceptance_rate - baseline_acceptance
+        # Calculate improvement over baseline
+        if baseline_metrics:
+            baseline_acceptance = baseline_metrics.get('acceptance_rate', 60.0)
+            improvement_over_baseline = acceptance_rate - baseline_acceptance
+        else:
+            # Use default baseline acceptance rate of 60%
+            baseline_acceptance = 60.0
+            improvement_over_baseline = acceptance_rate - baseline_acceptance
         
         # Calculate pattern-specific performance
         pattern_performance = self._calculate_pattern_performance(evaluation_data)
@@ -707,3 +748,396 @@ class LearningService:
         logger.info(f"Rolling back to model version {target_version.version_name}")
         
         return self.activate_model_version(target_version.id)
+    
+    def compare_model_versions(
+        self, 
+        version_a_id: int, 
+        version_b_id: int,
+        evaluation_data: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """
+        Compare performance between two model versions.
+        
+        Args:
+            version_a_id: ID of first model version
+            version_b_id: ID of second model version
+            evaluation_data: Optional evaluation dataset for comparison
+            
+        Returns:
+            Dict containing detailed comparison results
+            
+        Requirements: 4.2, 6.4
+        """
+        version_a = self.db.query(ModelVersion).filter(ModelVersion.id == version_a_id).first()
+        version_b = self.db.query(ModelVersion).filter(ModelVersion.id == version_b_id).first()
+        
+        if not version_a or not version_b:
+            raise LearningServiceError("One or both model versions not found")
+        
+        logger.info(f"Comparing model versions: {version_a.version_name} vs {version_b.version_name}")
+        
+        # Get performance metrics for both versions
+        metrics_a = self.evaluate_model_performance(version_a_id, evaluation_data)
+        metrics_b = self.evaluate_model_performance(version_b_id, evaluation_data)
+        
+        # Calculate differences
+        accuracy_diff = metrics_b.accuracy_score - metrics_a.accuracy_score
+        acceptance_diff = metrics_b.acceptance_rate - metrics_a.acceptance_rate
+        f1_diff = metrics_b.f1_score - metrics_a.f1_score
+        
+        # Determine which version is better
+        better_version = None
+        if accuracy_diff > 0.01 and acceptance_diff > 1.0:  # Thresholds for significance
+            better_version = version_b.version_name
+        elif accuracy_diff < -0.01 and acceptance_diff < -1.0:
+            better_version = version_a.version_name
+        
+        # Compare pattern-specific performance
+        pattern_comparison = self._compare_pattern_performance(
+            metrics_a.pattern_performance, 
+            metrics_b.pattern_performance
+        )
+        
+        comparison_result = {
+            'version_a': {
+                'id': version_a_id,
+                'name': version_a.version_name,
+                'metrics': {
+                    'accuracy': metrics_a.accuracy_score,
+                    'acceptance_rate': metrics_a.acceptance_rate,
+                    'f1_score': metrics_a.f1_score,
+                    'precision': metrics_a.precision_score,
+                    'recall': metrics_a.recall_score
+                }
+            },
+            'version_b': {
+                'id': version_b_id,
+                'name': version_b.version_name,
+                'metrics': {
+                    'accuracy': metrics_b.accuracy_score,
+                    'acceptance_rate': metrics_b.acceptance_rate,
+                    'f1_score': metrics_b.f1_score,
+                    'precision': metrics_b.precision_score,
+                    'recall': metrics_b.recall_score
+                }
+            },
+            'differences': {
+                'accuracy': round(accuracy_diff, 4),
+                'acceptance_rate': round(acceptance_diff, 2),
+                'f1_score': round(f1_diff, 4),
+                'precision': round(metrics_b.precision_score - metrics_a.precision_score, 4),
+                'recall': round(metrics_b.recall_score - metrics_a.recall_score, 4)
+            },
+            'better_version': better_version,
+            'pattern_comparison': pattern_comparison,
+            'recommendation': self._generate_version_recommendation(
+                version_a, version_b, accuracy_diff, acceptance_diff
+            ),
+            'comparison_date': datetime.utcnow().isoformat()
+        }
+        
+        logger.info(f"Model comparison completed. Better version: {better_version or 'inconclusive'}")
+        
+        return comparison_result
+    
+    def _compare_pattern_performance(
+        self, 
+        patterns_a: Dict[str, Dict[str, float]], 
+        patterns_b: Dict[str, Dict[str, float]]
+    ) -> Dict[str, Dict[str, float]]:
+        """Compare pattern performance between two model versions."""
+        all_patterns = set(patterns_a.keys()) | set(patterns_b.keys())
+        pattern_comparison = {}
+        
+        for pattern in all_patterns:
+            metrics_a = patterns_a.get(pattern, {})
+            metrics_b = patterns_b.get(pattern, {})
+            
+            acceptance_a = metrics_a.get('acceptance_rate', 0.0)
+            acceptance_b = metrics_b.get('acceptance_rate', 0.0)
+            
+            pattern_comparison[pattern] = {
+                'acceptance_rate_diff': round(acceptance_b - acceptance_a, 2),
+                'version_a_acceptance': acceptance_a,
+                'version_b_acceptance': acceptance_b,
+                'better_in_b': acceptance_b > acceptance_a,
+                'confidence_a': metrics_a.get('confidence', 0.0),
+                'confidence_b': metrics_b.get('confidence', 0.0)
+            }
+        
+        return pattern_comparison
+    
+    def _generate_version_recommendation(
+        self, 
+        version_a: ModelVersion, 
+        version_b: ModelVersion, 
+        accuracy_diff: float, 
+        acceptance_diff: float
+    ) -> str:
+        """Generate a recommendation for which model version to use."""
+        if abs(accuracy_diff) < 0.01 and abs(acceptance_diff) < 1.0:
+            return f"Both versions perform similarly. Consider using {version_b.version_name} if it's newer."
+        
+        if accuracy_diff > 0.02 or acceptance_diff > 2.0:
+            return f"Recommend {version_b.version_name} - shows significant improvement in performance."
+        
+        if accuracy_diff < -0.02 or acceptance_diff < -2.0:
+            return f"Recommend {version_a.version_name} - {version_b.version_name} shows performance regression."
+        
+        return f"Marginal differences detected. Consider other factors like training time and resource usage."
+    
+    def rollback_model_version(self, target_version_id: int) -> ModelVersion:
+        """
+        Rollback to a previous model version.
+        
+        Args:
+            target_version_id: ID of the model version to rollback to
+            
+        Returns:
+            ModelVersion: The rolled back model version
+            
+        Requirements: 4.2, 6.4
+        """
+        target_version = self.db.query(ModelVersion).filter(
+            ModelVersion.id == target_version_id
+        ).first()
+        
+        if not target_version:
+            raise LearningServiceError(f"Target model version {target_version_id} not found")
+        
+        if not target_version.is_production_ready:
+            raise LearningServiceError(f"Model version {target_version_id} is not production ready")
+        
+        # Deactivate current active model
+        current_active = self.db.query(ModelVersion).filter(
+            ModelVersion.is_active == True
+        ).first()
+        
+        if current_active:
+            current_active.is_active = False
+            current_active.deployment_status = "retired"
+            current_active.retired_at = datetime.utcnow()
+        
+        # Activate target version
+        target_version.is_active = True
+        target_version.deployment_status = "deployed"
+        target_version.deployed_at = datetime.utcnow()
+        
+        self.db.commit()
+        self.db.refresh(target_version)
+        
+        logger.info(f"Rolled back to model version {target_version.version_name}")
+        
+        return target_version
+    
+    def get_learning_pipeline_status(self) -> Dict[str, Any]:
+        """
+        Get comprehensive status of the learning pipeline.
+        
+        Returns:
+            Dict containing pipeline status, metrics, and health information
+            
+        Requirements: 4.1, 4.4
+        """
+        # Get active model version
+        active_model = self.db.query(ModelVersion).filter(
+            ModelVersion.is_active == True
+        ).first()
+        
+        # Get recent feedback statistics
+        recent_feedback_count = self.db.query(FeedbackRecord).filter(
+            FeedbackRecord.created_at >= datetime.utcnow() - timedelta(days=7)
+        ).count()
+        
+        # Get validation statistics
+        validated_feedback_count = self.db.query(FeedbackRecord).filter(
+            FeedbackRecord.is_validated == True
+        ).count()
+        
+        # Get training data readiness
+        training_ready = validated_feedback_count >= self.min_training_examples
+        
+        # Get recent fine-tuning jobs
+        recent_jobs = self.db.query(ModelVersion).filter(
+            ModelVersion.fine_tuning_job_id.isnot(None),
+            ModelVersion.created_at >= datetime.utcnow() - timedelta(days=30)
+        ).count()
+        
+        # Calculate pipeline health score
+        health_score = self._calculate_pipeline_health_score(
+            recent_feedback_count, validated_feedback_count, training_ready
+        )
+        
+        return {
+            'active_model': {
+                'id': active_model.id if active_model else None,
+                'version_name': active_model.version_name if active_model else None,
+                'deployment_status': active_model.deployment_status if active_model else None,
+                'deployed_at': active_model.deployed_at.isoformat() if active_model and active_model.deployed_at else None,
+                'performance_summary': active_model.get_performance_summary() if active_model else None
+            },
+            'feedback_statistics': {
+                'recent_feedback_count': recent_feedback_count,
+                'validated_feedback_count': validated_feedback_count,
+                'training_data_ready': training_ready,
+                'min_training_examples': self.min_training_examples
+            },
+            'training_status': {
+                'recent_jobs_count': recent_jobs,
+                'can_trigger_training': training_ready,
+                'next_training_eligible': training_ready
+            },
+            'pipeline_health': {
+                'health_score': health_score,
+                'status': self._get_health_status(health_score),
+                'recommendations': self._get_health_recommendations(
+                    recent_feedback_count, validated_feedback_count, training_ready
+                )
+            },
+            'last_updated': datetime.utcnow().isoformat()
+        }
+    
+    def _calculate_pipeline_health_score(
+        self, 
+        recent_feedback: int, 
+        validated_feedback: int, 
+        training_ready: bool
+    ) -> float:
+        """Calculate a health score for the learning pipeline (0-100)."""
+        score = 0.0
+        
+        # Recent feedback activity (0-30 points)
+        if recent_feedback >= 50:
+            score += 30
+        elif recent_feedback >= 20:
+            score += 20
+        elif recent_feedback >= 5:
+            score += 10
+        
+        # Validated feedback availability (0-40 points)
+        if validated_feedback >= self.min_training_examples * 2:
+            score += 40
+        elif validated_feedback >= self.min_training_examples:
+            score += 30
+        elif validated_feedback >= self.min_training_examples * 0.5:
+            score += 20
+        elif validated_feedback >= self.min_training_examples * 0.25:
+            score += 10
+        
+        # Training readiness (0-30 points)
+        if training_ready:
+            score += 30
+        
+        return round(score, 1)
+    
+    def _get_health_status(self, health_score: float) -> str:
+        """Get health status based on score."""
+        if health_score >= 80:
+            return "excellent"
+        elif health_score >= 60:
+            return "good"
+        elif health_score >= 40:
+            return "fair"
+        elif health_score >= 20:
+            return "poor"
+        else:
+            return "critical"
+    
+    def _get_health_recommendations(
+        self, 
+        recent_feedback: int, 
+        validated_feedback: int, 
+        training_ready: bool
+    ) -> List[str]:
+        """Get recommendations for improving pipeline health."""
+        recommendations = []
+        
+        if recent_feedback < 10:
+            recommendations.append("Increase user engagement to collect more feedback")
+        
+        if validated_feedback < self.min_training_examples:
+            recommendations.append(f"Need {self.min_training_examples - validated_feedback} more validated feedback examples for training")
+        
+        if not training_ready:
+            recommendations.append("Focus on feedback validation to enable model training")
+        
+        if validated_feedback >= self.min_training_examples * 2 and recent_feedback >= 20:
+            recommendations.append("Consider triggering a new fine-tuning job")
+        
+        if not recommendations:
+            recommendations.append("Pipeline is healthy - continue monitoring performance")
+        
+        return recommendations
+    
+    def cleanup_old_model_versions(
+        self, 
+        keep_count: int = 5, 
+        keep_days: int = 30
+    ) -> Dict[str, Any]:
+        """
+        Clean up old model versions to save storage space.
+        
+        Args:
+            keep_count: Number of recent versions to keep
+            keep_days: Number of days to keep versions regardless of count
+            
+        Returns:
+            Dict containing cleanup results
+            
+        Requirements: 6.4
+        """
+        cutoff_date = datetime.utcnow() - timedelta(days=keep_days)
+        
+        # Get all model versions ordered by creation date
+        all_versions = self.db.query(ModelVersion).order_by(
+            desc(ModelVersion.created_at)
+        ).all()
+        
+        # Identify versions to keep
+        versions_to_keep = set()
+        
+        # Keep active version
+        active_version = next((v for v in all_versions if v.is_active), None)
+        if active_version:
+            versions_to_keep.add(active_version.id)
+        
+        # Keep recent versions by count
+        for version in all_versions[:keep_count]:
+            versions_to_keep.add(version.id)
+        
+        # Keep versions within the time window
+        for version in all_versions:
+            if version.created_at >= cutoff_date:
+                versions_to_keep.add(version.id)
+        
+        # Identify versions to delete
+        versions_to_delete = [
+            version for version in all_versions 
+            if version.id not in versions_to_keep and not version.is_active
+        ]
+        
+        deleted_count = 0
+        deleted_versions = []
+        
+        for version in versions_to_delete:
+            try:
+                deleted_versions.append({
+                    'id': version.id,
+                    'version_name': version.version_name,
+                    'created_at': version.created_at.isoformat()
+                })
+                self.db.delete(version)
+                deleted_count += 1
+            except Exception as e:
+                logger.error(f"Failed to delete model version {version.id}: {e}")
+        
+        if deleted_count > 0:
+            self.db.commit()
+            logger.info(f"Cleaned up {deleted_count} old model versions")
+        
+        return {
+            'deleted_count': deleted_count,
+            'kept_count': len(versions_to_keep),
+            'deleted_versions': deleted_versions,
+            'cleanup_date': datetime.utcnow().isoformat()
+        }

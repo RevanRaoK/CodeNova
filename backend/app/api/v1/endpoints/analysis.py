@@ -427,8 +427,35 @@ def analyze_code_direct(
             )
             
             db.add(db_analysis)
+            
+            # Create Issue records for each detected issue
+            from app.models.feedback import Issue
+            
+            for issue_data in issues:
+                db_issue = Issue(
+                    id=issue_data["id"],
+                    analysis_id=analysis_id,
+                    pattern_type=issue_data.get("rule", "unknown"),
+                    severity=issue_data["severity"],
+                    category=issue_data.get("category", "ai-review"),
+                    location={
+                        "line": issue_data["line"],
+                        "column": issue_data["column"],
+                        "context": issue_data.get("suggestion", "")[:100]
+                    },
+                    suggestion_text=issue_data["message"],
+                    code_context=request.code[max(0, (issue_data["line"]-3)*50):(issue_data["line"]+3)*50],
+                    original_code="",  # Could be enhanced to extract specific problematic code
+                    suggested_fix=issue_data.get("suggestion", ""),
+                    ast_node_type=None,  # Could be enhanced with AST data
+                    ast_metadata=None,
+                    status="active",
+                    confidence_score=0.8  # Default confidence, could be enhanced
+                )
+                db.add(db_issue)
+            
             db.commit()
-            print("Analysis results stored successfully!")
+            print(f"Analysis results and {len(issues)} issues stored successfully!")
             
         except Exception as db_error:
             # Log database error but don't fail the analysis
@@ -437,7 +464,8 @@ def analyze_code_direct(
             traceback.print_exc()
             db.rollback()
         
-        return {
+        # Enhanced response with feedback collection interface
+        response = {
             "analysis_id": analysis_id,
             "status": "completed",
             "issues": issues,
@@ -449,8 +477,30 @@ def analyze_code_direct(
             "filename": request.filename,
             "file_size_bytes": len(request.code.encode('utf-8')),
             "processing_time_ms": processing_time_ms,
-            "ai_model_used": "gemini-ai"
+            "ai_model_used": "gemini-ai",
+            # Feedback collection interface
+            "feedback_interface": {
+                "enabled": True,
+                "feedback_endpoint": f"/api/v1/feedback",
+                "issue_retrieval_endpoint": f"/api/v1/issues",
+                "analysis_issues_endpoint": f"/api/v1/analyses/{analysis_id}/issues",
+                "supported_feedback_types": ["accept", "reject", "modify"],
+                "feedback_instructions": {
+                    "accept": "Mark this suggestion as helpful and accurate",
+                    "reject": "Mark this suggestion as unhelpful or incorrect", 
+                    "modify": "Provide an improved version of this suggestion"
+                }
+            },
+            # AST processing information
+            "ast_processing": {
+                "enabled": ast_result.is_valid if 'ast_result' in locals() else False,
+                "processing_time_seconds": ast_processing_time if 'ast_processing_time' in locals() else None,
+                "patterns_detected": len(code_patterns) if code_patterns else 0,
+                "language_supported": request.language in ['python', 'javascript', 'typescript']
+            }
         }
+        
+        return response
         
     except HTTPException:
         # Re-raise HTTP exceptions (like 413 for file too large)
@@ -863,3 +913,260 @@ def get_direct_analysis_by_id(
     except Exception as e:
         print(f"Error getting analysis by ID: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to retrieve analysis")
+
+
+# Response models for issue endpoints
+class IssueDetailResponse(BaseModel):
+    """Detailed response for a single issue."""
+    issue_id: str
+    analysis_id: str
+    pattern_type: str
+    severity: str
+    category: Optional[str]
+    location: dict
+    suggestion_text: str
+    code_context: str
+    original_code: Optional[str]
+    suggested_fix: Optional[str]
+    ast_node_type: Optional[str]
+    ast_metadata: Optional[dict]
+    status: str
+    confidence_score: Optional[float]
+    created_at: str
+    updated_at: str
+    resolved_at: Optional[str]
+    feedback_summary: dict
+    feedback_interface: dict
+
+class IssueListItem(BaseModel):
+    """Summary response for issue in a list."""
+    issue_id: str
+    pattern_type: str
+    severity: str
+    category: Optional[str]
+    location: dict
+    suggestion_text: str
+    code_context: str
+    status: str
+    confidence_score: Optional[float]
+    created_at: str
+    feedback_count: int
+    has_accepted_feedback: bool
+    has_rejected_feedback: bool
+
+class AnalysisIssuesResponse(BaseModel):
+    """Response for analysis issues endpoint."""
+    analysis_id: str
+    issues: List[IssueListItem]
+    pagination: dict
+    filters: dict
+    summary: dict
+    feedback_interface: dict
+
+# New endpoints for issue retrieval (Task 9.2)
+
+@router.get("/issues/{issue_id}", response_model=IssueDetailResponse)
+def get_issue_by_id(
+    issue_id: str = Path(..., description="Unique issue identifier"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get detailed information about a specific issue by its ID.
+    
+    Users can only access issues from their own analyses.
+    
+    Requirements covered: 1.4, 5.1
+    """
+    try:
+        # Import Issue model
+        from app.models.feedback import Issue
+        
+        # Query issue with user permission check via analysis relationship
+        issue = db.query(Issue).join(DirectAnalysis).filter(
+            Issue.id == issue_id,
+            DirectAnalysis.user_id == current_user.id
+        ).first()
+        
+        if not issue:
+            raise HTTPException(
+                status_code=404, 
+                detail="Issue not found or you don't have permission to access it"
+            )
+        
+        # Format response with comprehensive issue details
+        response = {
+            "issue_id": issue.id,
+            "analysis_id": issue.analysis_id,
+            "pattern_type": issue.pattern_type,
+            "severity": issue.severity,
+            "category": issue.category,
+            "location": issue.location,
+            "suggestion_text": issue.suggestion_text,
+            "code_context": issue.code_context,
+            "original_code": issue.original_code,
+            "suggested_fix": issue.suggested_fix,
+            "ast_node_type": issue.ast_node_type,
+            "ast_metadata": issue.ast_metadata,
+            "status": issue.status,
+            "confidence_score": issue.confidence_score,
+            "created_at": issue.created_at.isoformat(),
+            "updated_at": issue.updated_at.isoformat(),
+            "resolved_at": issue.resolved_at.isoformat() if issue.resolved_at else None,
+            # Feedback summary
+            "feedback_summary": {
+                "total_feedback": len(issue.feedback_records),
+                "accepted": len([f for f in issue.feedback_records if f.feedback_type == "accept"]),
+                "rejected": len([f for f in issue.feedback_records if f.feedback_type == "reject"]),
+                "modified": len([f for f in issue.feedback_records if f.feedback_type == "modify"])
+            },
+            # Feedback interface
+            "feedback_interface": {
+                "can_provide_feedback": issue.status == "active",
+                "feedback_endpoint": f"/api/v1/feedback",
+                "supported_actions": ["accept", "reject", "modify"] if issue.status == "active" else []
+            }
+        }
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error retrieving issue {issue_id}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve issue details"
+        )
+
+
+@router.get("/analyses/{analysis_id}/issues", response_model=AnalysisIssuesResponse)
+def get_analysis_issues(
+    analysis_id: str = Path(..., description="Analysis identifier"),
+    severity: Optional[str] = Query(None, description="Filter by severity (info, warning, error)"),
+    status: Optional[str] = Query(None, description="Filter by status (active, resolved, ignored)"),
+    pattern_type: Optional[str] = Query(None, description="Filter by pattern type"),
+    page: int = Query(default=1, ge=1, description="Page number"),
+    page_size: int = Query(default=20, ge=1, le=100, description="Items per page"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all issues for a specific analysis with filtering and pagination.
+    
+    Users can only access issues from their own analyses.
+    
+    Requirements covered: 1.4, 5.1
+    """
+    try:
+        # Import Issue model
+        from app.models.feedback import Issue
+        
+        # Verify analysis exists and belongs to user
+        analysis = db.query(DirectAnalysis).filter(
+            DirectAnalysis.id == analysis_id,
+            DirectAnalysis.user_id == current_user.id
+        ).first()
+        
+        if not analysis:
+            raise HTTPException(
+                status_code=404,
+                detail="Analysis not found or you don't have permission to access it"
+            )
+        
+        # Build query with filters
+        query = db.query(Issue).filter(Issue.analysis_id == analysis_id)
+        
+        if severity:
+            query = query.filter(Issue.severity == severity.lower())
+        if status:
+            query = query.filter(Issue.status == status.lower())
+        if pattern_type:
+            query = query.filter(Issue.pattern_type == pattern_type)
+        
+        # Get total count for pagination
+        total_count = query.count()
+        
+        # Apply pagination and ordering
+        offset = (page - 1) * page_size
+        issues = query.order_by(Issue.created_at.desc()).offset(offset).limit(page_size).all()
+        
+        # Format issues for response
+        formatted_issues = []
+        for issue in issues:
+            formatted_issue = {
+                "issue_id": issue.id,
+                "pattern_type": issue.pattern_type,
+                "severity": issue.severity,
+                "category": issue.category,
+                "location": issue.location,
+                "suggestion_text": issue.suggestion_text,
+                "code_context": issue.code_context[:200] + "..." if len(issue.code_context) > 200 else issue.code_context,
+                "status": issue.status,
+                "confidence_score": issue.confidence_score,
+                "created_at": issue.created_at.isoformat(),
+                "feedback_count": len(issue.feedback_records),
+                "has_accepted_feedback": any(f.feedback_type == "accept" for f in issue.feedback_records),
+                "has_rejected_feedback": any(f.feedback_type == "reject" for f in issue.feedback_records)
+            }
+            formatted_issues.append(formatted_issue)
+        
+        # Calculate pagination info
+        has_next = offset + page_size < total_count
+        has_previous = page > 1
+        total_pages = (total_count + page_size - 1) // page_size
+        
+        # Get summary statistics
+        severity_counts = {}
+        status_counts = {}
+        pattern_counts = {}
+        
+        all_issues = db.query(Issue).filter(Issue.analysis_id == analysis_id).all()
+        for issue in all_issues:
+            severity_counts[issue.severity] = severity_counts.get(issue.severity, 0) + 1
+            status_counts[issue.status] = status_counts.get(issue.status, 0) + 1
+            pattern_counts[issue.pattern_type] = pattern_counts.get(issue.pattern_type, 0) + 1
+        
+        response = {
+            "analysis_id": analysis_id,
+            "issues": formatted_issues,
+            "pagination": {
+                "total_count": total_count,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "has_next": has_next,
+                "has_previous": has_previous
+            },
+            "filters": {
+                "severity": severity,
+                "status": status,
+                "pattern_type": pattern_type
+            },
+            "summary": {
+                "total_issues": total_count,
+                "severity_distribution": severity_counts,
+                "status_distribution": status_counts,
+                "pattern_distribution": pattern_counts
+            },
+            "feedback_interface": {
+                "feedback_endpoint": f"/api/v1/feedback",
+                "bulk_feedback_endpoint": f"/api/v1/feedback/bulk",
+                "supported_actions": ["accept", "reject", "modify"]
+            }
+        }
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error retrieving issues for analysis {analysis_id}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve analysis issues"
+        )
