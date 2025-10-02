@@ -12,14 +12,20 @@ import {
   ChevronRightIcon,
   CodeIcon,
   LightbulbIcon,
+  HashIcon,
 } from 'lucide-react'
+import { FeedbackButton } from './FeedbackButton'
+import { FeedbackModal } from './FeedbackModal'
+import feedbackService from '../services/feedbackService'
 
 export function ReviewResults({ 
   issues, 
   onIssueClick, 
   analysisMetrics, 
   onIssueNavigate,
-  onMarkersUpdate 
+  onMarkersUpdate,
+  enableFeedback = true,
+  onFeedbackSubmitted
 }) {
   const [filter, setFilter] = useState('all') // 'all', 'error', 'warning', 'info'
   const [sortBy, setSortBy] = useState('line') // 'line', 'severity', 'category'
@@ -28,6 +34,8 @@ export function ReviewResults({
   const [groupBy, setGroupBy] = useState('none') // 'none', 'severity', 'category'
   const [selectedIssueIndex, setSelectedIssueIndex] = useState(-1) // For keyboard navigation
   const [focusedElement, setFocusedElement] = useState(null) // Track focused element
+  const [feedbackModal, setFeedbackModal] = useState({ isOpen: false, issue: null, feedbackType: 'accept' })
+  const [issueFeedback, setIssueFeedback] = useState(new Map()) // Track feedback for each issue
 
   // Process and filter issues
   const processedIssues = useMemo(() => {
@@ -109,6 +117,51 @@ export function ReviewResults({
       newExpanded.add(issueId)
     }
     setExpandedIssues(newExpanded)
+  }
+
+  // Feedback handling functions
+  const handleFeedbackSubmit = async (feedbackData) => {
+    try {
+      await feedbackService.submitFeedback(feedbackData)
+      
+      // Update local feedback state
+      const newFeedback = new Map(issueFeedback)
+      newFeedback.set(feedbackData.issueId, {
+        type: feedbackData.feedbackType,
+        timestamp: new Date(),
+        comment: feedbackData.feedbackComment
+      })
+      setIssueFeedback(newFeedback)
+      
+      // Notify parent component
+      if (onFeedbackSubmitted) {
+        onFeedbackSubmitted(feedbackData)
+      }
+    } catch (error) {
+      console.error('Failed to submit feedback:', error)
+      throw error
+    }
+  }
+
+  const handleQuickFeedback = async (feedbackData) => {
+    return handleFeedbackSubmit(feedbackData)
+  }
+
+  const handleDetailedFeedback = (issue, feedbackType = 'accept') => {
+    setFeedbackModal({
+      isOpen: true,
+      issue,
+      feedbackType
+    })
+  }
+
+  const closeFeedbackModal = () => {
+    setFeedbackModal({ isOpen: false, issue: null, feedbackType: 'accept' })
+  }
+
+  const handleModalFeedbackSubmit = async (feedbackData) => {
+    await handleFeedbackSubmit(feedbackData)
+    closeFeedbackModal()
   }
 
   const isIssueExpanded = (issueId) => {
@@ -301,6 +354,15 @@ export function ReviewResults({
                       {issue.rule}
                     </span>
                   )}
+                  {/* Issue ID display */}
+                  {issue.id && enableFeedback && (
+                    <div className="flex items-center text-xs text-gray-500">
+                      <HashIcon className="h-3 w-3 mr-1" />
+                      <span className="font-mono" title={`Issue ID: ${issue.id}`}>
+                        {issue.id.substring(0, 8)}...
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center space-x-2">
                   {(issue.suggestion || issue.codeExample || issue.documentation) && (
@@ -328,6 +390,19 @@ export function ReviewResults({
                       <span className="ml-1">Go to code</span>
                     </button>
                   )}
+                  {/* Feedback button for detailed feedback */}
+                  {enableFeedback && issue.id && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDetailedFeedback(issue, 'accept')
+                      }}
+                      className="flex items-center text-sm text-indigo-600 hover:text-indigo-800"
+                    >
+                      <LightbulbIcon className="h-4 w-4" />
+                      <span className="ml-1">Feedback</span>
+                    </button>
+                  )}
                 </div>
               </div>
               
@@ -340,6 +415,22 @@ export function ReviewResults({
                   <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
                     {issue.category}
                   </span>
+                </div>
+              )}
+
+              {/* Feedback buttons section */}
+              {enableFeedback && issue.id && (
+                <div className="mt-3 pt-3 border-t border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Was this suggestion helpful?</span>
+                    <FeedbackButton
+                      issueId={issue.id}
+                      onFeedback={handleQuickFeedback}
+                      size="sm"
+                      showLabels={false}
+                      existingFeedback={issueFeedback.get(issue.id)}
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -653,6 +744,17 @@ export function ReviewResults({
           </div>
         )}
       </div>
+
+      {/* Feedback Modal */}
+      {enableFeedback && (
+        <FeedbackModal
+          isOpen={feedbackModal.isOpen}
+          onClose={closeFeedbackModal}
+          onSubmit={handleModalFeedbackSubmit}
+          issue={feedbackModal.issue}
+          initialFeedbackType={feedbackModal.feedbackType}
+        />
+      )}
     </div>
   )
 }
