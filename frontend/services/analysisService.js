@@ -250,15 +250,17 @@ class AnalysisService {
    * @returns {Array} Processed issues array
    */
   processIssues(issues) {
-    return issues.map(issue => ({
-      id: issue.id || `${issue.line}-${issue.column}-${Date.now()}`,
+    return issues.map((issue, index) => ({
+      id: issue.id || issue.issue_id || `${issue.line}-${issue.column}-${Date.now()}-${index}`,
       line: issue.line,
       column: issue.column || 0,
       severity: issue.severity || 'info',
       message: issue.message,
       rule: issue.rule || 'unknown',
       suggestion: issue.suggestion || null,
-      category: issue.category || 'general'
+      category: issue.category || 'general',
+      codeExample: issue.code_example || issue.codeExample || null,
+      documentation: issue.documentation || null
     }));
   }
 
