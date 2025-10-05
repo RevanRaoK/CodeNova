@@ -191,7 +191,7 @@ async def list_repositories(
         ).offset(offset).limit(per_page)
         
         result = await db.execute(query)
-        repositories = result.scalars().all()
+        repositories = list(result.scalars().all())
         
         # Get total count
         count_query = select(func.count(GitHubRepository.id)).where(
@@ -202,7 +202,7 @@ async def list_repositories(
         
         return RepositoryListResponse(
             repositories=[GitHubRepositoryResponse.from_orm(repo) for repo in repositories],
-            total=total,
+            total=total or 0,
             page=page,
             per_page=per_page
         )

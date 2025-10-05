@@ -123,6 +123,46 @@ def login(
         }
     }
 
+@router.post("/login-json", response_model=dict)
+def login_json(
+    credentials: UserLogin,
+    db: Session = Depends(get_db)
+) -> Any:
+    """JSON login endpoint for frontend applications."""
+    try:
+        user = AuthService.authenticate_user(db, credentials.email, credentials.password)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password",
+            )
+        
+        tokens = AuthService.create_user_tokens(db, user)
+        
+        return {
+            "access_token": tokens["access_token"],
+            "refresh_token": tokens["refresh_token"],
+            "token_type": tokens["token_type"],
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "full_name": user.full_name,
+                "role": user.role.value,
+                "is_active": user.is_active,
+                "is_verified": user.is_verified,
+                "created_at": user.created_at.isoformat(),
+                "updated_at": user.updated_at.isoformat()
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Login error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Login failed: {str(e)}"
+        )
+
 @router.post("/refresh-token", response_model=dict)
 def refresh_token(
     refresh_token: str,

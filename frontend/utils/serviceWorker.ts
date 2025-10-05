@@ -264,6 +264,8 @@ export const setupOfflineDetection = () => {
 };
 
 // Service worker utilities for React components
+import React from 'react';
+
 export const useServiceWorker = () => {
   const [status, setStatus] = React.useState<ServiceWorkerStatus>({
     isSupported: isServiceWorkerSupported(),

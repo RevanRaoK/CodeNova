@@ -91,7 +91,7 @@ class PRAnalysis(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     # Relationships
-    repository = relationship("GitHubRepository")
+    repository = relationship("GitHubRepository", overlaps="pr_analyses")
 
     def __repr__(self):
         return f"<PRAnalysis(id={self.id}, repository_id={self.repository_id}, pr_number={self.pr_number}, status={self.status})>"

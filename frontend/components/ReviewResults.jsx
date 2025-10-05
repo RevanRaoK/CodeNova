@@ -14,14 +14,13 @@ import {
   LightbulbIcon,
   HashIcon,
 } from 'lucide-react'
-import { FeedbackButton } from './FeedbackButton'
-import { FeedbackModal } from './FeedbackModal'
+import { FeedbackWidget } from './FeedbackWidget'
 import feedbackService from '../services/feedbackService'
 
-export function ReviewResults({ 
-  issues, 
-  onIssueClick, 
-  analysisMetrics, 
+export function ReviewResults({
+  issues,
+  onIssueClick,
+  analysisMetrics,
   onIssueNavigate,
   onMarkersUpdate,
   enableFeedback = true,
@@ -34,13 +33,13 @@ export function ReviewResults({
   const [groupBy, setGroupBy] = useState('none') // 'none', 'severity', 'category'
   const [selectedIssueIndex, setSelectedIssueIndex] = useState(-1) // For keyboard navigation
   const [focusedElement, setFocusedElement] = useState(null) // Track focused element
-  const [feedbackModal, setFeedbackModal] = useState({ isOpen: false, issue: null, feedbackType: 'accept' })
   const [issueFeedback, setIssueFeedback] = useState(new Map()) // Track feedback for each issue
+  const [loadingFeedback, setLoadingFeedback] = useState(new Set()) // Track which issues are loading feedback
 
   // Process and filter issues
   const processedIssues = useMemo(() => {
     if (!Array.isArray(issues)) return groupBy === 'none' ? [] : {}
-    
+
     let filtered = issues.filter(issue => {
       if (filter === 'all') return true
       return issue.severity === filter
@@ -49,7 +48,7 @@ export function ReviewResults({
     // Sort issues
     filtered.sort((a, b) => {
       let aVal, bVal
-      
+
       switch (sortBy) {
         case 'line':
           aVal = a.line || 0
@@ -95,7 +94,7 @@ export function ReviewResults({
   // Count issues by severity
   const issueCounts = useMemo(() => {
     if (!Array.isArray(issues)) return { error: 0, warning: 0, info: 0, total: 0 }
-    
+
     return issues.reduce((counts, issue) => {
       counts[issue.severity] = (counts[issue.severity] || 0) + 1
       counts.total++
@@ -119,20 +118,85 @@ export function ReviewResults({
     setExpandedIssues(newExpanded)
   }
 
+  // Load existing feedback for issues on component mount
+  useEffect(() => {
+    const loadExistingFeedback = async () => {
+      if (!Array.isArray(issues) || !enableFeedback) return
+
+      const issuesWithIds = issues.filter(issue => issue.id)
+      if (issuesWithIds.length === 0) return
+
+      try {
+        // Load feedback for each issue
+        const feedbackPromises = issuesWithIds.map(async (issue) => {
+          try {
+            const feedback = await feedbackService.getFeedbackByIssue(issue.id)
+            return { issueId: issue.id, feedback }
+          } catch (error) {
+            // Issue might not have feedback yet, which is fine
+            return { issueId: issue.id, feedback: null }
+          }
+        })
+
+        const feedbackResults = await Promise.all(feedbackPromises)
+        const newFeedbackMap = new Map(issueFeedback)
+
+        feedbackResults.forEach(({ issueId, feedback }) => {
+          if (feedback) {
+            newFeedbackMap.set(issueId, {
+              type: feedback.feedbackType,
+              timestamp: new Date(feedback.createdAt),
+              comment: feedback.feedbackComment,
+              rejectionReasons: feedback.rejectionReasons,
+              id: feedback.id
+            })
+          }
+        })
+
+        setIssueFeedback(newFeedbackMap)
+      } catch (error) {
+        console.error('Failed to load existing feedback:', error)
+      }
+    }
+
+    loadExistingFeedback()
+  }, [issues, enableFeedback])
+
   // Feedback handling functions
   const handleFeedbackSubmit = async (feedbackData) => {
+    const issueId = feedbackData.suggestion?.id || feedbackData.issueId
+    if (!issueId) return
+
+    // Add to loading set
+    setLoadingFeedback(prev => new Set(prev).add(issueId))
+
     try {
-      await feedbackService.submitFeedback(feedbackData)
-      
+      const response = await feedbackService.submitFeedback({
+        issueId: issueId,
+        feedbackType: feedbackData.feedbackType,
+        feedbackComment: feedbackData.feedbackComment,
+        rejectionReasons: feedbackData.rejectionReasons,
+        contextData: {
+          suggestionText: feedbackData.suggestion?.message || feedbackData.suggestion?.suggestion,
+          severity: feedbackData.suggestion?.severity,
+          line: feedbackData.suggestion?.line,
+          column: feedbackData.suggestion?.column,
+          category: feedbackData.suggestion?.category,
+          submittedAt: new Date().toISOString(),
+        }
+      })
+
       // Update local feedback state
       const newFeedback = new Map(issueFeedback)
-      newFeedback.set(feedbackData.issueId, {
+      newFeedback.set(issueId, {
         type: feedbackData.feedbackType,
         timestamp: new Date(),
-        comment: feedbackData.feedbackComment
+        comment: feedbackData.feedbackComment,
+        rejectionReasons: feedbackData.rejectionReasons,
+        id: response.id
       })
       setIssueFeedback(newFeedback)
-      
+
       // Notify parent component
       if (onFeedbackSubmitted) {
         onFeedbackSubmitted(feedbackData)
@@ -140,28 +204,14 @@ export function ReviewResults({
     } catch (error) {
       console.error('Failed to submit feedback:', error)
       throw error
+    } finally {
+      // Remove from loading set
+      setLoadingFeedback(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(issueId)
+        return newSet
+      })
     }
-  }
-
-  const handleQuickFeedback = async (feedbackData) => {
-    return handleFeedbackSubmit(feedbackData)
-  }
-
-  const handleDetailedFeedback = (issue, feedbackType = 'accept') => {
-    setFeedbackModal({
-      isOpen: true,
-      issue,
-      feedbackType
-    })
-  }
-
-  const closeFeedbackModal = () => {
-    setFeedbackModal({ isOpen: false, issue: null, feedbackType: 'accept' })
-  }
-
-  const handleModalFeedbackSubmit = async (feedbackData) => {
-    await handleFeedbackSubmit(feedbackData)
-    closeFeedbackModal()
   }
 
   const isIssueExpanded = (issueId) => {
@@ -185,7 +235,7 @@ export function ReviewResults({
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault()
-        setSelectedIssueIndex(prev => 
+        setSelectedIssueIndex(prev =>
           prev < flatIssuesList.length - 1 ? prev + 1 : prev
         )
         break
@@ -315,22 +365,20 @@ export function ReviewResults({
   const renderIssueItem = (issue, index, globalIndex = null) => {
     const issueId = issue.id || `issue-${index}`
     const isExpanded = isIssueExpanded(issueId)
-    const actualIndex = globalIndex !== null ? globalIndex : flatIssuesList.findIndex(i => 
+    const actualIndex = globalIndex !== null ? globalIndex : flatIssuesList.findIndex(i =>
       (i.id || `issue-${flatIssuesList.indexOf(i)}`) === issueId
     )
     const isSelected = selectedIssueIndex === actualIndex
 
     return (
-      <div 
-        key={issueId} 
-        className={`border-b border-gray-200 last:border-b-0 ${
-          isSelected ? 'ring-2 ring-blue-500 ring-inset' : ''
-        }`}
+      <div
+        key={issueId}
+        className={`border-b border-gray-200 last:border-b-0 ${isSelected ? 'ring-2 ring-blue-500 ring-inset' : ''
+          }`}
       >
-        <div 
-          className={`p-4 transition-colors ${
-            isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'
-          } ${onIssueClick ? 'cursor-pointer' : ''}`}
+        <div
+          className={`p-4 transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'
+            } ${onIssueClick ? 'cursor-pointer' : ''}`}
           onClick={() => {
             setSelectedIssueIndex(actualIndex)
             if (onIssueClick) {
@@ -342,7 +390,7 @@ export function ReviewResults({
             <div className="flex-shrink-0 mr-3 mt-0.5">
               {getSeverityIcon(issue.severity)}
             </div>
-            
+
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
@@ -390,26 +438,14 @@ export function ReviewResults({
                       <span className="ml-1">Go to code</span>
                     </button>
                   )}
-                  {/* Feedback button for detailed feedback */}
-                  {enableFeedback && issue.id && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDetailedFeedback(issue, 'accept')
-                      }}
-                      className="flex items-center text-sm text-indigo-600 hover:text-indigo-800"
-                    >
-                      <LightbulbIcon className="h-4 w-4" />
-                      <span className="ml-1">Feedback</span>
-                    </button>
-                  )}
+
                 </div>
               </div>
-              
+
               <p className="text-gray-700 mt-1 text-sm leading-relaxed">
                 {issue.message}
               </p>
-              
+
               {issue.category && issue.category !== 'general' && (
                 <div className="mt-2">
                   <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
@@ -418,19 +454,89 @@ export function ReviewResults({
                 </div>
               )}
 
-              {/* Feedback buttons section */}
+              {/* Feedback status and widget section */}
               {enableFeedback && issue.id && (
                 <div className="mt-3 pt-3 border-t border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Was this suggestion helpful?</span>
-                    <FeedbackButton
-                      issueId={issue.id}
-                      onFeedback={handleQuickFeedback}
-                      size="sm"
-                      showLabels={false}
-                      existingFeedback={issueFeedback.get(issue.id)}
-                    />
-                  </div>
+                  {/* Show existing feedback status */}
+                  {issueFeedback.has(issue.id) ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-gray-700">Your Feedback:</span>
+                        <div className="flex items-center space-x-2">
+                          {(() => {
+                            const feedback = issueFeedback.get(issue.id)
+                            const feedbackTypeColors = {
+                              accept: 'bg-green-100 text-green-800 border-green-200',
+                              reject: 'bg-red-100 text-red-800 border-red-200',
+                              modify: 'bg-blue-100 text-blue-800 border-blue-200'
+                            }
+                            return (
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${feedbackTypeColors[feedback.type] || 'bg-gray-100 text-gray-800 border-gray-200'}`}>
+                                {feedback.type === 'accept' && '👍 Accepted'}
+                                {feedback.type === 'reject' && '👎 Rejected'}
+                                {feedback.type === 'modify' && '✏️ Modified'}
+                              </span>
+                            )
+                          })()}
+                          <span className="text-xs text-gray-500">
+                            {issueFeedback.get(issue.id).timestamp.toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Show feedback comment if exists */}
+                      {issueFeedback.get(issue.id).comment && (
+                        <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded border">
+                          <strong>Comment:</strong> {issueFeedback.get(issue.id).comment}
+                        </div>
+                      )}
+
+                      {/* Show rejection reasons if exists */}
+                      {issueFeedback.get(issue.id).rejectionReasons && issueFeedback.get(issue.id).rejectionReasons.length > 0 && (
+                        <div className="text-sm text-gray-600 bg-red-50 p-2 rounded border border-red-200">
+                          <strong>Rejection reasons:</strong>
+                          <ul className="mt-1 list-disc list-inside">
+                            {issueFeedback.get(issue.id).rejectionReasons.map((reason, idx) => (
+                              <li key={idx}>{reason}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Option to change feedback */}
+                      <div className="pt-2">
+                        <FeedbackWidget
+                          suggestion={issue}
+                          onFeedbackSubmit={handleFeedbackSubmit}
+                          disabled={loadingFeedback.has(issue.id)}
+                          size="sm"
+                          showLabels={true}
+                          existingFeedback={issueFeedback.get(issue.id)}
+                          realTimeUpdates={false}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    /* Show feedback widget for new feedback */
+                    <div className="space-y-2">
+                      <span className="text-sm text-gray-600">Was this suggestion helpful?</span>
+                      <FeedbackWidget
+                        suggestion={issue}
+                        onFeedbackSubmit={handleFeedbackSubmit}
+                        disabled={loadingFeedback.has(issue.id)}
+                        size="sm"
+                        showLabels={true}
+                        existingFeedback={null}
+                        realTimeUpdates={false}
+                      />
+                      {loadingFeedback.has(issue.id) && (
+                        <div className="flex items-center text-xs text-gray-500">
+                          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-500 mr-2"></div>
+                          Submitting feedback...
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -517,7 +623,7 @@ export function ReviewResults({
   }
 
   return (
-    <div 
+    <div
       className="border border-gray-300 rounded-md overflow-hidden focus:outline-none focus:ring-2 focus:ring-blue-500"
       tabIndex={0}
       ref={setFocusedElement}
@@ -546,7 +652,7 @@ export function ReviewResults({
                 </span>
               )}
             </div>
-            
+
             {/* Navigation controls */}
             {flatIssuesList.length > 0 && (
               <div className="flex items-center space-x-2 mt-2 text-sm">
@@ -610,40 +716,37 @@ export function ReviewResults({
               <span className="text-sm text-gray-500">Sort:</span>
               <button
                 onClick={() => toggleSort('line')}
-                className={`flex items-center text-sm px-2 py-1 rounded ${
-                  sortBy === 'line' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:text-gray-800'
-                }`}
+                className={`flex items-center text-sm px-2 py-1 rounded ${sortBy === 'line' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:text-gray-800'
+                  }`}
               >
                 Line
                 {sortBy === 'line' && (
-                  sortOrder === 'asc' ? 
-                    <SortAscIcon className="h-3 w-3 ml-1" /> : 
+                  sortOrder === 'asc' ?
+                    <SortAscIcon className="h-3 w-3 ml-1" /> :
                     <SortDescIcon className="h-3 w-3 ml-1" />
                 )}
               </button>
               <button
                 onClick={() => toggleSort('severity')}
-                className={`flex items-center text-sm px-2 py-1 rounded ${
-                  sortBy === 'severity' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:text-gray-800'
-                }`}
+                className={`flex items-center text-sm px-2 py-1 rounded ${sortBy === 'severity' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:text-gray-800'
+                  }`}
               >
                 Severity
                 {sortBy === 'severity' && (
-                  sortOrder === 'asc' ? 
-                    <SortAscIcon className="h-3 w-3 ml-1" /> : 
+                  sortOrder === 'asc' ?
+                    <SortAscIcon className="h-3 w-3 ml-1" /> :
                     <SortDescIcon className="h-3 w-3 ml-1" />
                 )}
               </button>
               <button
                 onClick={() => toggleSort('category')}
-                className={`flex items-center text-sm px-2 py-1 rounded ${
-                  sortBy === 'category' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:text-gray-800'
-                }`}
+                className={`flex items-center text-sm px-2 py-1 rounded ${sortBy === 'category' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:text-gray-800'
+                  }`}
               >
                 Category
                 {sortBy === 'category' && (
-                  sortOrder === 'asc' ? 
-                    <SortAscIcon className="h-3 w-3 ml-1" /> : 
+                  sortOrder === 'asc' ?
+                    <SortAscIcon className="h-3 w-3 ml-1" /> :
                     <SortDescIcon className="h-3 w-3 ml-1" />
                 )}
               </button>
@@ -687,7 +790,7 @@ export function ReviewResults({
         {groupBy === 'none' ? (
           // Ungrouped display
           <div>
-            {Array.isArray(processedIssues) && processedIssues.map((issue, index) => 
+            {Array.isArray(processedIssues) && processedIssues.map((issue, index) =>
               renderIssueItem(issue, index, index)
             )}
           </div>
@@ -697,11 +800,11 @@ export function ReviewResults({
             {Object.entries(processedIssues).map(([groupKey, groupIssues]) => {
               let globalIndexOffset = 0
               // Calculate offset for this group
-              const previousGroups = Object.entries(processedIssues).slice(0, 
+              const previousGroups = Object.entries(processedIssues).slice(0,
                 Object.keys(processedIssues).indexOf(groupKey)
               )
               globalIndexOffset = previousGroups.reduce((sum, [, issues]) => sum + issues.length, 0)
-              
+
               return (
                 <div key={groupKey} className="border-b border-gray-300 last:border-b-0">
                   <div className="bg-gray-100 px-4 py-2 border-b border-gray-200">
@@ -718,7 +821,7 @@ export function ReviewResults({
                     </div>
                   </div>
                   <div>
-                    {groupIssues.map((issue, index) => 
+                    {groupIssues.map((issue, index) =>
                       renderIssueItem(issue, `${groupKey}-${index}`, globalIndexOffset + index)
                     )}
                   </div>
@@ -729,32 +832,23 @@ export function ReviewResults({
         )}
 
         {/* Empty state for filtered results */}
-        {((Array.isArray(processedIssues) && processedIssues.length === 0) || 
-          (typeof processedIssues === 'object' && Object.keys(processedIssues).length === 0)) && 
+        {((Array.isArray(processedIssues) && processedIssues.length === 0) ||
+          (typeof processedIssues === 'object' && Object.keys(processedIssues).length === 0)) &&
           filter !== 'all' && (
-          <div className="p-6 text-center text-gray-500">
-            <FilterIcon className="h-8 w-8 mx-auto mb-2 text-gray-400" />
-            <p>No {filter} issues found.</p>
-            <button
-              onClick={() => setFilter('all')}
-              className="mt-2 text-indigo-600 hover:text-indigo-800 text-sm"
-            >
-              Show all issues
-            </button>
-          </div>
-        )}
+            <div className="p-6 text-center text-gray-500">
+              <FilterIcon className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+              <p>No {filter} issues found.</p>
+              <button
+                onClick={() => setFilter('all')}
+                className="mt-2 text-indigo-600 hover:text-indigo-800 text-sm"
+              >
+                Show all issues
+              </button>
+            </div>
+          )}
       </div>
 
-      {/* Feedback Modal */}
-      {enableFeedback && (
-        <FeedbackModal
-          isOpen={feedbackModal.isOpen}
-          onClose={closeFeedbackModal}
-          onSubmit={handleModalFeedbackSubmit}
-          issue={feedbackModal.issue}
-          initialFeedbackType={feedbackModal.feedbackType}
-        />
-      )}
+
     </div>
   )
 }

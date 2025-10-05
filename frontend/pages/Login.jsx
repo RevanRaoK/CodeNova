@@ -6,24 +6,24 @@ import GoogleOAuthButton from '../components/auth/GoogleOAuthButton'
 
 export function Login() {
   console.log('🔄 Login component: Starting to render');
-  
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [errors, setErrors] = useState({})
   const [isLoading, setIsLoading] = useState(false)
-  
+
   console.log('🔄 Login component: State initialized');
-  
+
   const navigate = useNavigate()
   const location = useLocation()
   const { login, loginWithGoogle } = useAuth()
-  
+
   console.log('🔄 Login component: Hooks loaded');
-  
+
   // Get the intended destination from location state, default to home
   const from = location.state?.from?.pathname || '/'
-  
+
   console.log('🔄 Login component: Ready to render JSX');
 
   const handleSubmit = async (e) => {
@@ -49,7 +49,7 @@ export function Login() {
     try {
       const result = await login({ email, password })
       console.log('Login successful:', result.user)
-      
+
       // Navigate to intended destination or home page after successful login
       navigate(from, { replace: true })
     } catch (error) {
@@ -91,8 +91,8 @@ export function Login() {
         <div className="text-center">
           <h2 className="text-2xl font-bold text-red-600">Authentication Error</h2>
           <p className="mt-2 text-gray-600">{errors.general}</p>
-          <button 
-            onClick={() => window.location.reload()} 
+          <button
+            onClick={() => window.location.reload()}
             className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
           >
             Refresh Page
@@ -162,9 +162,8 @@ export function Login() {
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className={`appearance-none rounded-none relative block w-full px-3 py-2 border ${
-                  errors.email ? 'border-red-300' : 'border-gray-300'
-                } placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
+                className={`appearance-none rounded-none relative block w-full px-3 py-2 border ${errors.email ? 'border-red-300' : 'border-gray-300'
+                  } placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
                 placeholder="Email address"
               />
               {errors.email && (
@@ -183,9 +182,8 @@ export function Login() {
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className={`appearance-none rounded-none relative block w-full px-3 py-2 border ${
-                  errors.password ? 'border-red-300' : 'border-gray-300'
-                } placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm pr-10`}
+                className={`appearance-none rounded-none relative block w-full px-3 py-2 border ${errors.password ? 'border-red-300' : 'border-gray-300'
+                  } placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm pr-10`}
                 placeholder="Password"
               />
               <button
@@ -235,11 +233,10 @@ export function Login() {
             <button
               type="submit"
               disabled={isLoading}
-              className={`group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white ${
-                isLoading 
-                  ? 'bg-gray-400 cursor-not-allowed' 
-                  : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
-              }`}
+              className={`group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white ${isLoading
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
+                }`}
             >
               <span className="absolute left-0 inset-y-0 flex items-center pl-3">
                 <LogIn className="h-5 w-5 text-indigo-500 group-hover:text-indigo-400" />
@@ -248,6 +245,16 @@ export function Login() {
             </button>
           </div>
         </form>
+
+        {/* Admin Login Link */}
+        <div className="mt-6 text-center">
+          <Link
+            to="/admin/login"
+            className="text-sm text-gray-600 hover:text-indigo-600 transition-colors"
+          >
+            Administrator? Sign in here →
+          </Link>
+        </div>
       </div>
     </div>
   )

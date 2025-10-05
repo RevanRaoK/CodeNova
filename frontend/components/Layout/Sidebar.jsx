@@ -9,9 +9,14 @@ import {
   SettingsIcon,
   UserIcon,
   XIcon,
+  ShieldIcon,
+  GitBranchIcon,
 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 export function Sidebar({ isOpen, setIsOpen }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'team_lead';
   return (
     <>
       {/* Mobile sidebar backdrop */}
@@ -41,10 +46,9 @@ export function Sidebar({ isOpen, setIsOpen }) {
           <NavLink
             to="/"
             className={({ isActive }) =>
-              `flex items-center px-4 py-2 text-sm rounded-md ${
-                isActive
-                  ? 'bg-indigo-800 text-white'
-                  : 'text-indigo-100 hover:bg-indigo-600'
+              `flex items-center px-4 py-2 text-sm rounded-md ${isActive
+                ? 'bg-indigo-800 text-white'
+                : 'text-indigo-100 hover:bg-indigo-600'
               }`
             }
           >
@@ -55,10 +59,9 @@ export function Sidebar({ isOpen, setIsOpen }) {
           <NavLink
             to="/code-review"
             className={({ isActive }) =>
-              `flex items-center px-4 py-2 text-sm rounded-md ${
-                isActive
-                  ? 'bg-indigo-800 text-white'
-                  : 'text-indigo-100 hover:bg-indigo-600'
+              `flex items-center px-4 py-2 text-sm rounded-md ${isActive
+                ? 'bg-indigo-800 text-white'
+                : 'text-indigo-100 hover:bg-indigo-600'
               }`
             }
           >
@@ -68,10 +71,9 @@ export function Sidebar({ isOpen, setIsOpen }) {
           <NavLink
             to="/pattern-library"
             className={({ isActive }) =>
-              `flex items-center px-4 py-2 text-sm rounded-md ${
-                isActive
-                  ? 'bg-indigo-800 text-white'
-                  : 'text-indigo-100 hover:bg-indigo-600'
+              `flex items-center px-4 py-2 text-sm rounded-md ${isActive
+                ? 'bg-indigo-800 text-white'
+                : 'text-indigo-100 hover:bg-indigo-600'
               }`
             }
           >
@@ -81,23 +83,49 @@ export function Sidebar({ isOpen, setIsOpen }) {
           <NavLink
             to="/feedback-dashboard"
             className={({ isActive }) =>
-              `flex items-center px-4 py-2 text-sm rounded-md ${
-                isActive
-                  ? 'bg-indigo-800 text-white'
-                  : 'text-indigo-100 hover:bg-indigo-600'
+              `flex items-center px-4 py-2 text-sm rounded-md ${isActive
+                ? 'bg-indigo-800 text-white'
+                : 'text-indigo-100 hover:bg-indigo-600'
               }`
             }
           >
             <BarChart3Icon className="mr-3 h-5 w-5" />
             Feedback Dashboard
           </NavLink>
+
+          <NavLink
+            to="/github"
+            className={({ isActive }) =>
+              `flex items-center px-4 py-2 text-sm rounded-md ${isActive
+                ? 'bg-indigo-800 text-white'
+                : 'text-indigo-100 hover:bg-indigo-600'
+              }`
+            }
+          >
+            <GitBranchIcon className="mr-3 h-5 w-5" />
+            GitHub Integration
+          </NavLink>
+
+          {isAdmin && (
+            <NavLink
+              to="/admin"
+              className={({ isActive }) =>
+                `flex items-center px-4 py-2 text-sm rounded-md ${isActive
+                  ? 'bg-indigo-800 text-white'
+                  : 'text-indigo-100 hover:bg-indigo-600'
+                }`
+              }
+            >
+              <ShieldIcon className="mr-3 h-5 w-5" />
+              Admin Dashboard
+            </NavLink>
+          )}
           <NavLink
             to="/settings"
             className={({ isActive }) =>
-              `flex items-center px-4 py-2 text-sm rounded-md ${
-                isActive
-                  ? 'bg-indigo-800 text-white'
-                  : 'text-indigo-100 hover:bg-indigo-600'
+              `flex items-center px-4 py-2 text-sm rounded-md ${isActive
+                ? 'bg-indigo-800 text-white'
+                : 'text-indigo-100 hover:bg-indigo-600'
               }`
             }
           >
@@ -107,10 +135,9 @@ export function Sidebar({ isOpen, setIsOpen }) {
           <NavLink
             to="/profile"
             className={({ isActive }) =>
-              `flex items-center px-4 py-2 text-sm rounded-md ${
-                isActive
-                  ? 'bg-indigo-800 text-white'
-                  : 'text-indigo-100 hover:bg-indigo-600'
+              `flex items-center px-4 py-2 text-sm rounded-md ${isActive
+                ? 'bg-indigo-800 text-white'
+                : 'text-indigo-100 hover:bg-indigo-600'
               }`
             }
           >

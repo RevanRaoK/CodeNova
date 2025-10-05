@@ -3,329 +3,230 @@ from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
+from fastapi import UploadFile
+import json
+import os
+import uuid
 
-from app.models.users import User, UserRole, Token
-from app.schemas.user import UserCreate, UserUpdate, UserResponse, UserRoleUpdate
+from app.models.users import User
+from app.schemas.users import UserProfileUpdate, UserPreferences, NotificationPreferences, PasswordChange, UserProfile
 from app.core.security import get_password_hash, verify_password
-from app.core.exceptions import ValidationError, NotFoundError, ConflictError
-from app.core.config import settings
 
 
 class UserService:
-    """Service for managing user operations including CRUD, authentication, and role management."""
+    """Service for managing user operations including profile, preferences, and settings."""
     
-    def __init__(self, db: Session):
-        self.db = db
-    
-    def create_user(self, user_data: UserCreate) -> User:
-        """Create a new user with hashed password."""
-        # Check if user already exists
-        existing_user = self.db.query(User).filter(User.email == user_data.email).first()
-        if existing_user:
-            raise ConflictError("User with this email already exists")
-        
-        # Hash the password
-        hashed_password = get_password_hash(user_data.password)
-        
-        # Create user instance
-        db_user = User(
-            email=user_data.email,
-            full_name=user_data.full_name,
-            hashed_password=hashed_password,
-            role=UserRole.USER,
-            is_active=True,
-            is_verified=False,
-            preferences={}
-        )
-        
-        try:
-            self.db.add(db_user)
-            self.db.commit()
-            self.db.refresh(db_user)
-            return db_user
-        except IntegrityError:
-            self.db.rollback()
-            raise ConflictError("User with this email already exists")
-    
-    def create_oauth_user(self, email: str, full_name: str, oauth_provider: str, 
-                         oauth_id: str, profile_picture_url: Optional[str] = None) -> User:
-        """Create a new user from OAuth authentication."""
-        # Check if user already exists
-        existing_user = self.db.query(User).filter(
-            or_(
-                User.email == email,
-                and_(User.oauth_provider == oauth_provider, User.oauth_id == oauth_id)
-            )
-        ).first()
-        
-        if existing_user:
-            # Update OAuth info if user exists but doesn't have OAuth data
-            if not existing_user.oauth_provider:
-                existing_user.oauth_provider = oauth_provider
-                existing_user.oauth_id = oauth_id
-                existing_user.oauth_email_verified = True
-                if profile_picture_url:
-                    existing_user.profile_picture_url = profile_picture_url
-                self.db.commit()
-                self.db.refresh(existing_user)
-            return existing_user
-        
-        # Create new OAuth user
-        db_user = User(
-            email=email,
-            full_name=full_name,
-            oauth_provider=oauth_provider,
-            oauth_id=oauth_id,
-            oauth_email_verified=True,
-            profile_picture_url=profile_picture_url,
-            role=UserRole.USER,
-            is_active=True,
-            is_verified=True,  # OAuth users are considered verified
-            preferences={}
-        )
-        
-        try:
-            self.db.add(db_user)
-            self.db.commit()
-            self.db.refresh(db_user)
-            return db_user
-        except IntegrityError:
-            self.db.rollback()
-            raise ConflictError("User with this email already exists")
-    
-    def authenticate_user(self, email: str, password: str) -> Optional[User]:
-        """Authenticate user with email and password."""
-        user = self.db.query(User).filter(User.email == email).first()
-        if not user or not user.hashed_password:
-            return None
-        
-        if not verify_password(password, user.hashed_password):
-            return None
-        
-        # Update last login
-        user.last_login = datetime.utcnow()
-        self.db.commit()
-        
-        return user
-    
-    def get_user_by_id(self, user_id: int) -> Optional[User]:
-        """Get user by ID."""
-        return self.db.query(User).filter(User.id == user_id).first()
-    
-    def get_user_by_email(self, email: str) -> Optional[User]:
-        """Get user by email."""
-        return self.db.query(User).filter(User.email == email).first()
-    
-    def get_user_by_oauth(self, oauth_provider: str, oauth_id: str) -> Optional[User]:
-        """Get user by OAuth provider and ID."""
-        return self.db.query(User).filter(
-            and_(User.oauth_provider == oauth_provider, User.oauth_id == oauth_id)
-        ).first()
-    
-    def update_user(self, user_id: int, user_data: UserUpdate) -> User:
-        """Update user information."""
-        user = self.get_user_by_id(user_id)
+    async def get_user_profile(self, db: Session, user_id: str) -> Optional[UserProfile]:
+        """Get user profile information."""
+        user = db.query(User).filter(User.id == user_id).first()
         if not user:
-            raise NotFoundError("User not found")
+            return None
         
-        # Check email uniqueness if email is being updated
-        if user_data.email and user_data.email != user.email:
-            existing_user = self.get_user_by_email(user_data.email)
-            if existing_user:
-                raise ConflictError("User with this email already exists")
+        # Convert user model to profile schema
+        profile = UserProfile(
+            firstName=getattr(user, 'first_name', None),
+            lastName=getattr(user, 'last_name', None),
+            email=user.email,
+            jobTitle=getattr(user, 'job_title', None),
+            bio=getattr(user, 'bio', None),
+            programmingLanguages=json.loads(getattr(user, 'programming_languages', '[]')) if getattr(user, 'programming_languages', None) else [],
+            profilePictureUrl=getattr(user, 'profile_picture_url', None)
+        )
+        return profile
+    
+    async def update_user_profile(self, db: Session, user_id: str, profile_data: UserProfileUpdate) -> Optional[UserProfile]:
+        """Update user profile information."""
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return None
         
-        # Update fields
-        if user_data.full_name is not None:
-            user.full_name = user_data.full_name
-        if user_data.email is not None:
-            user.email = user_data.email
-        if user_data.password is not None:
-            user.hashed_password = get_password_hash(user_data.password)
+        # Update user fields
+        if profile_data.firstName is not None:
+            user.first_name = profile_data.firstName
+        if profile_data.lastName is not None:
+            user.last_name = profile_data.lastName
+        if profile_data.email is not None:
+            user.email = profile_data.email
+        if profile_data.jobTitle is not None:
+            user.job_title = profile_data.jobTitle
+        if profile_data.bio is not None:
+            user.bio = profile_data.bio
+        if profile_data.programmingLanguages is not None:
+            user.programming_languages = json.dumps(profile_data.programmingLanguages)
         
         user.updated_at = datetime.utcnow()
         
         try:
-            self.db.commit()
-            self.db.refresh(user)
-            return user
+            db.commit()
+            db.refresh(user)
+            return await self.get_user_profile(db, user_id)
         except IntegrityError:
-            self.db.rollback()
-            raise ConflictError("User with this email already exists")
+            db.rollback()
+            raise
     
-    def update_user_role(self, user_id: int, role_data: UserRoleUpdate) -> User:
-        """Update user role (admin only operation)."""
-        user = self.get_user_by_id(user_id)
+    async def get_user_preferences(self, db: Session, user_id: str) -> Dict[str, Any]:
+        """Get user preferences."""
+        user = db.query(User).filter(User.id == user_id).first()
         if not user:
-            raise NotFoundError("User not found")
+            return {}
         
-        user.role = role_data.role
-        user.updated_at = datetime.utcnow()
+        # Get preferences from user model or return defaults
+        preferences_json = getattr(user, 'preferences', '{}')
+        if isinstance(preferences_json, str):
+            preferences = json.loads(preferences_json) if preferences_json else {}
+        else:
+            preferences = preferences_json or {}
         
-        self.db.commit()
-        self.db.refresh(user)
-        return user
+        # Return structured preferences
+        return {
+            "notifications": preferences.get("notifications", {
+                "emailNotifications": {
+                    "reviewCompleted": True,
+                    "newPattern": True,
+                    "securityAlert": True,
+                    "weeklyDigest": False,
+                    "marketingEmails": False
+                },
+                "pushNotifications": {
+                    "reviewCompleted": True,
+                    "newPattern": False,
+                    "securityAlert": True
+                },
+                "frequency": "immediate"
+            }),
+            "userPreferences": preferences.get("userPreferences", {
+                "theme": "light",
+                "language": "en",
+                "timezone": "UTC",
+                "defaultProgrammingLanguage": "javascript",
+                "aiModel": "gemini-pro",
+                "codeEditorTheme": "vs-light",
+                "autoSave": True,
+                "showLineNumbers": True
+            })
+        }
     
-    def update_user_preferences(self, user_id: int, preferences: Dict[str, Any]) -> User:
+    async def update_user_preferences(self, db: Session, user_id: str, preferences: UserPreferences) -> Dict[str, Any]:
         """Update user preferences."""
-        user = self.get_user_by_id(user_id)
+        user = db.query(User).filter(User.id == user_id).first()
         if not user:
-            raise NotFoundError("User not found")
+            return {}
         
-        # Merge with existing preferences
-        current_prefs = user.preferences or {}
-        current_prefs.update(preferences)
-        user.preferences = current_prefs
+        # Get current preferences
+        current_prefs = await self.get_user_preferences(db, user_id)
+        
+        # Update user preferences
+        current_prefs["userPreferences"] = preferences.dict()
+        
+        # Save to database
+        user.preferences = json.dumps(current_prefs)
         user.updated_at = datetime.utcnow()
         
-        self.db.commit()
-        self.db.refresh(user)
-        return user
+        try:
+            db.commit()
+            return current_prefs
+        except IntegrityError:
+            db.rollback()
+            raise
     
-    def deactivate_user(self, user_id: int) -> User:
-        """Deactivate a user account."""
-        user = self.get_user_by_id(user_id)
+    async def update_notification_preferences(self, db: Session, user_id: str, notifications: NotificationPreferences) -> Dict[str, Any]:
+        """Update notification preferences."""
+        user = db.query(User).filter(User.id == user_id).first()
         if not user:
-            raise NotFoundError("User not found")
+            return {}
         
-        user.is_active = False
+        # Get current preferences
+        current_prefs = await self.get_user_preferences(db, user_id)
+        
+        # Update notification preferences
+        current_prefs["notifications"] = notifications.dict()
+        
+        # Save to database
+        user.preferences = json.dumps(current_prefs)
         user.updated_at = datetime.utcnow()
         
-        self.db.commit()
-        self.db.refresh(user)
-        return user
+        try:
+            db.commit()
+            return current_prefs
+        except IntegrityError:
+            db.rollback()
+            raise
     
-    def activate_user(self, user_id: int) -> User:
-        """Activate a user account."""
-        user = self.get_user_by_id(user_id)
+    async def change_password(self, db: Session, user_id: str, password_data: PasswordChange) -> bool:
+        """Change user password."""
+        user = db.query(User).filter(User.id == user_id).first()
         if not user:
-            raise NotFoundError("User not found")
-        
-        user.is_active = True
-        user.updated_at = datetime.utcnow()
-        
-        self.db.commit()
-        self.db.refresh(user)
-        return user
-    
-    def verify_user_email(self, user_id: int) -> User:
-        """Mark user email as verified."""
-        user = self.get_user_by_id(user_id)
-        if not user:
-            raise NotFoundError("User not found")
-        
-        user.is_verified = True
-        user.updated_at = datetime.utcnow()
-        
-        self.db.commit()
-        self.db.refresh(user)
-        return user
-    
-    def get_users_by_role(self, role: UserRole, skip: int = 0, limit: int = 100) -> List[User]:
-        """Get users by role with pagination."""
-        return self.db.query(User).filter(User.role == role).offset(skip).limit(limit).all()
-    
-    def get_active_users(self, skip: int = 0, limit: int = 100) -> List[User]:
-        """Get active users with pagination."""
-        return self.db.query(User).filter(User.is_active == True).offset(skip).limit(limit).all()
-    
-    def search_users(self, query: str, skip: int = 0, limit: int = 100) -> List[User]:
-        """Search users by email or full name."""
-        search_filter = or_(
-            User.email.ilike(f"%{query}%"),
-            User.full_name.ilike(f"%{query}%")
-        )
-        return self.db.query(User).filter(search_filter).offset(skip).limit(limit).all()
-    
-    def get_user_count(self) -> int:
-        """Get total number of users."""
-        return self.db.query(User).count()
-    
-    def get_active_user_count(self) -> int:
-        """Get number of active users."""
-        return self.db.query(User).filter(User.is_active == True).count()
-    
-    def delete_user(self, user_id: int) -> bool:
-        """Delete a user (hard delete - use with caution)."""
-        user = self.get_user_by_id(user_id)
-        if not user:
-            raise NotFoundError("User not found")
-        
-        # Delete related tokens first
-        self.db.query(Token).filter(Token.user_id == user_id).delete()
-        
-        # Delete user
-        self.db.delete(user)
-        self.db.commit()
-        return True
-    
-    def change_password(self, user_id: int, current_password: str, new_password: str) -> User:
-        """Change user password with current password verification."""
-        user = self.get_user_by_id(user_id)
-        if not user:
-            raise NotFoundError("User not found")
+            return False
         
         # Verify current password
-        if not user.hashed_password or not verify_password(current_password, user.hashed_password):
-            raise ValidationError("Current password is incorrect")
+        if not verify_password(password_data.currentPassword, user.hashed_password):
+            return False
         
         # Update password
-        user.hashed_password = get_password_hash(new_password)
+        user.hashed_password = get_password_hash(password_data.newPassword)
         user.updated_at = datetime.utcnow()
         
-        self.db.commit()
-        self.db.refresh(user)
-        return user
+        try:
+            db.commit()
+            return True
+        except IntegrityError:
+            db.rollback()
+            return False
     
-    def reset_password(self, user_id: int, new_password: str) -> User:
-        """Reset user password (admin operation or after token verification)."""
-        user = self.get_user_by_id(user_id)
+    async def upload_profile_picture(self, db: Session, user_id: str, file: UploadFile) -> str:
+        """Upload profile picture and return URL."""
+        user = db.query(User).filter(User.id == user_id).first()
         if not user:
-            raise NotFoundError("User not found")
+            raise ValueError("User not found")
         
-        user.hashed_password = get_password_hash(new_password)
+        # Create uploads directory if it doesn't exist
+        upload_dir = "uploads/profile_pictures"
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # Generate unique filename
+        file_extension = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
+        filename = f"{user_id}_{uuid.uuid4().hex}.{file_extension}"
+        file_path = os.path.join(upload_dir, filename)
+        
+        # Save file
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        # Update user profile picture URL
+        profile_picture_url = f"/uploads/profile_pictures/{filename}"
+        user.profile_picture_url = profile_picture_url
         user.updated_at = datetime.utcnow()
         
-        self.db.commit()
-        self.db.refresh(user)
-        return user
+        try:
+            db.commit()
+            return profile_picture_url
+        except IntegrityError:
+            db.rollback()
+            # Clean up uploaded file
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise
     
-    def update_last_login(self, user_id: int) -> User:
-        """Update user's last login timestamp."""
-        user = self.get_user_by_id(user_id)
-        if not user:
-            raise NotFoundError("User not found")
+    async def delete_profile_picture(self, db: Session, user_id: str) -> bool:
+        """Delete profile picture."""
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user or not user.profile_picture_url:
+            return False
         
-        user.last_login = datetime.utcnow()
-        self.db.commit()
-        self.db.refresh(user)
-        return user
-    
-    def get_users_by_team(self, team_id: str, skip: int = 0, limit: int = 100) -> List[User]:
-        """Get users by team ID."""
-        return self.db.query(User).filter(User.team_id == team_id).offset(skip).limit(limit).all()
-    
-    def assign_user_to_team(self, user_id: int, team_id: str) -> User:
-        """Assign user to a team."""
-        user = self.get_user_by_id(user_id)
-        if not user:
-            raise NotFoundError("User not found")
+        # Delete file if it exists
+        if user.profile_picture_url.startswith('/uploads/'):
+            file_path = user.profile_picture_url[1:]  # Remove leading slash
+            if os.path.exists(file_path):
+                os.remove(file_path)
         
-        user.team_id = team_id
+        # Update user
+        user.profile_picture_url = None
         user.updated_at = datetime.utcnow()
         
-        self.db.commit()
-        self.db.refresh(user)
-        return user
-    
-    def remove_user_from_team(self, user_id: int) -> User:
-        """Remove user from their current team."""
-        user = self.get_user_by_id(user_id)
-        if not user:
-            raise NotFoundError("User not found")
-        
-        user.team_id = None
-        user.updated_at = datetime.utcnow()
-        
-        self.db.commit()
-        self.db.refresh(user)
-        return user
+        try:
+            db.commit()
+            return True
+        except IntegrityError:
+            db.rollback()
+            return False

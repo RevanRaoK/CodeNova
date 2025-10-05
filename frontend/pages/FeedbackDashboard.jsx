@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3Icon, TrendingUpIcon, UsersIcon, AlertCircleIcon } from 'lucide-react';
+import { BarChart3Icon, TrendingUpIcon, UsersIcon, AlertCircleIcon, HistoryIcon } from 'lucide-react';
 import feedbackService from '../services/feedbackService';
 import { FeedbackStatsChart } from '../components/FeedbackStatsChart';
 import { FeedbackTrendsChart } from '../components/FeedbackTrendsChart';
 import { ModelPerformanceChart } from '../components/ModelPerformanceChart';
+import { FeedbackHistory } from '../components/FeedbackHistory';
 
 export function FeedbackDashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [timeRange, setTimeRange] = useState('week');
+  const [activeTab, setActiveTab] = useState('overview');
 
   useEffect(() => {
     loadDashboardData();
@@ -66,110 +68,156 @@ export function FeedbackDashboard() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Feedback Dashboard</h1>
-          <p className="text-gray-600">Monitor feedback trends and model performance</p>
+          <p className="text-gray-600">Monitor feedback trends and your feedback history</p>
         </div>
-        
-        {/* Time Range Selector */}
-        <div className="flex space-x-2">
-          {['day', 'week', 'month', 'year'].map((range) => (
-            <button
-              key={range}
-              onClick={() => handleTimeRangeChange(range)}
-              className={`px-3 py-2 text-sm font-medium rounded-md ${
-                timeRange === range
+
+        {/* Time Range Selector - only show on overview tab */}
+        {activeTab === 'overview' && (
+          <div className="flex space-x-2">
+            {['day', 'week', 'month', 'year'].map((range) => (
+              <button
+                key={range}
+                onClick={() => handleTimeRangeChange(range)}
+                className={`px-3 py-2 text-sm font-medium rounded-md ${timeRange === range
                   ? 'bg-indigo-600 text-white'
                   : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-              }`}
-            >
-              {range.charAt(0).toUpperCase() + range.slice(1)}
-            </button>
-          ))}
-        </div>
+                  }`}
+              >
+                {range.charAt(0).toUpperCase() + range.slice(1)}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Stats Overview */}
-      {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <BarChart3Icon className="h-8 w-8 text-indigo-600" />
+      {/* Tab Navigation */}
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex space-x-8">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'overview'
+              ? 'border-indigo-500 text-indigo-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+          >
+            <BarChart3Icon className="w-4 h-4 inline mr-2" />
+            Overview
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'history'
+              ? 'border-indigo-500 text-indigo-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+          >
+            <HistoryIcon className="w-4 h-4 inline mr-2" />
+            My Feedback History
+          </button>
+        </nav>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'overview' && (
+        <>
+          {/* Stats Overview */}
+          {stats && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <BarChart3Icon className="h-8 w-8 text-indigo-600" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-500">Total Feedback</p>
+                    <p className="text-2xl font-semibold text-gray-900">
+                      {stats.totalFeedback || 0}
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Total Feedback</p>
-                <p className="text-2xl font-semibold text-gray-900">
-                  {stats.totalFeedback || 0}
-                </p>
+
+              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <TrendingUpIcon className="h-8 w-8 text-green-600" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-500">Acceptance Rate</p>
+                    <p className="text-2xl font-semibold text-gray-900">
+                      {stats.acceptanceRate ? `${(stats.acceptanceRate * 100).toFixed(1)}%` : '0%'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <UsersIcon className="h-8 w-8 text-blue-600" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-500">Active Users</p>
+                    <p className="text-2xl font-semibold text-gray-900">
+                      {stats.activeUsers || 0}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <AlertCircleIcon className="h-8 w-8 text-yellow-600" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-500">Issues Resolved</p>
+                    <p className="text-2xl font-semibold text-gray-900">
+                      {stats.resolvedIssues || 0}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
+          )}
+
+          {/* Charts Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Feedback Statistics Chart */}
+            <FeedbackStatsChart
+              data={stats?.feedbackByType || []}
+              timeRange={timeRange}
+            />
+
+            {/* Feedback Trends Chart */}
+            <FeedbackTrendsChart
+              data={stats?.feedbackTrends || []}
+              timeRange={timeRange}
+            />
           </div>
 
-          <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <TrendingUpIcon className="h-8 w-8 text-green-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Acceptance Rate</p>
-                <p className="text-2xl font-semibold text-gray-900">
-                  {stats.acceptanceRate ? `${(stats.acceptanceRate * 100).toFixed(1)}%` : '0%'}
-                </p>
-              </div>
-            </div>
+          {/* Model Performance Chart - Full Width */}
+          <div className="w-full">
+            <ModelPerformanceChart
+              data={stats?.modelPerformance || []}
+              timeRange={timeRange}
+            />
           </div>
-
-          <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <UsersIcon className="h-8 w-8 text-blue-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Active Users</p>
-                <p className="text-2xl font-semibold text-gray-900">
-                  {stats.activeUsers || 0}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <AlertCircleIcon className="h-8 w-8 text-yellow-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Issues Resolved</p>
-                <p className="text-2xl font-semibold text-gray-900">
-                  {stats.resolvedIssues || 0}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
+        </>
       )}
 
-      {/* Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Feedback Statistics Chart */}
-        <FeedbackStatsChart 
-          data={stats?.feedbackByType || []}
-          timeRange={timeRange}
-        />
-
-        {/* Feedback Trends Chart */}
-        <FeedbackTrendsChart 
-          data={stats?.feedbackTrends || []}
-          timeRange={timeRange}
-        />
-      </div>
-
-      {/* Model Performance Chart - Full Width */}
-      <div className="w-full">
-        <ModelPerformanceChart 
-          data={stats?.modelPerformance || []}
-          timeRange={timeRange}
-        />
-      </div>
+      {/* History Tab Content */}
+      {activeTab === 'history' && (
+        <div className="space-y-6">
+          <FeedbackHistory
+            pageSize={15}
+            showFilters={true}
+            onFeedbackClick={(feedback) => {
+              // Optional: Handle feedback item click (e.g., show details)
+              console.log('Feedback clicked:', feedback);
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

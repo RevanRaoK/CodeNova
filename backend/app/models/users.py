@@ -29,6 +29,13 @@ class User(Base):
     team_id = Column(String(36), nullable=True, index=True)  # Will add FK constraint in migration
     preferences = Column(JSON, default=dict, nullable=False)
     
+    # Profile fields
+    first_name = Column(String(100), nullable=True)
+    last_name = Column(String(100), nullable=True)
+    job_title = Column(String(200), nullable=True)
+    bio = Column(String(1000), nullable=True)
+    programming_languages = Column(String(500), nullable=True)  # JSON string of languages
+    
     # OAuth fields
     oauth_provider = Column(String(50), nullable=True)  # 'google', 'github', etc.
     oauth_id = Column(String(255), nullable=True)  # Provider-specific user ID

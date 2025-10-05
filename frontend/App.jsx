@@ -18,6 +18,12 @@ import { MonacoEditorTest } from './components/MonacoEditorTest'
 import { MonacoEditorDemo } from './components/MonacoEditorDemo'
 import { ApiTest } from './pages/ApiTest'
 import { NotificationDemo } from './pages/NotificationDemo'
+import AdminDashboard from './components/AdminDashboard'
+import GitHubIntegration from './components/GitHubIntegration'
+import GitHubOAuthCallback from './components/GitHubOAuthCallback'
+import AdminTest from './pages/AdminTest'
+import AdminRouter from './components/AdminRouter'
+import AdminLogin from './pages/AdminLogin'
 
 // Environment and service worker utilities
 import { env, logger, featureFlags, buildInfo } from './utils/environment'
@@ -60,7 +66,7 @@ const ServiceWorkerUpdateBanner = ({ onUpdate, onDismiss }) => (
 // Offline Status Banner Component
 const OfflineStatusBanner = ({ isOffline }) => {
   if (!isOffline) return null;
-  
+
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-yellow-600 text-white p-2 z-40">
       <div className="max-w-7xl mx-auto text-center">
@@ -140,7 +146,7 @@ export function App() {
     if (swRegistration && swRegistration.waiting) {
       // Skip waiting and activate new service worker
       swRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
-      
+
       // Wait for the new service worker to take control
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         // Reload the page to get the new version
@@ -166,7 +172,7 @@ export function App() {
                 onDismiss={handleDismissUpdateBanner}
               />
             )}
-            
+
             {/* Main App Content */}
             <div className={showUpdateBanner ? 'pt-16' : ''}>
               <Router>
@@ -174,6 +180,12 @@ export function App() {
                   {/* Public auth routes */}
                   <Route path="/login" element={<Login />} />
                   <Route path="/signup" element={<Signup />} />
+
+                  {/* Admin routes */}
+                  <Route path="/admin/*" element={<AdminRouter />} />
+
+                  {/* GitHub OAuth callback route */}
+                  <Route path="/github/callback" element={<GitHubOAuthCallback />} />
 
                   {/* Protected app routes with main Layout */}
                   <Route element={
@@ -185,6 +197,8 @@ export function App() {
                     <Route path="/code-review" element={<CodeReview />} />
                     <Route path="/pattern-library" element={<PatternLibrary />} />
                     <Route path="/feedback-dashboard" element={<FeedbackDashboard />} />
+                    <Route path="/admin-test" element={<AdminTest />} />
+                    <Route path="/github" element={<GitHubIntegration />} />
                     <Route path="/settings" element={<Settings />} />
                     <Route path="/profile" element={<Profile />} />
                     <Route path="/monaco-test" element={<MonacoEditorTest />} />
@@ -196,7 +210,7 @@ export function App() {
                 <NotificationManager />
               </Router>
             </div>
-            
+
             {/* Offline Status Banner */}
             <OfflineStatusBanner isOffline={isOffline} />
           </div>

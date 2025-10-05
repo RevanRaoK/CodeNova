@@ -19,24 +19,13 @@ class AuthService {
    */
   async login(credentials) {
     try {
-      const response = await httpClient.post('/auth/login', {
-        username: credentials.email, // Backend expects username field
+      const response = await httpClient.post('/auth/login-json', {
+        email: credentials.email,
         password: credentials.password
-      }, {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        transformRequest: [(data) => {
-          // Transform to form data as expected by FastAPI OAuth2
-          const formData = new URLSearchParams();
-          formData.append('username', data.username);
-          formData.append('password', data.password);
-          return formData;
-        }]
       });
 
       const { access_token, refresh_token, token_type, user } = response.data;
-      
+
       // Store tokens and user data
       this.setToken(access_token);
       this.setRefreshToken(refresh_token);
@@ -71,7 +60,7 @@ class AuthService {
       });
 
       const { access_token, refresh_token, token_type, user } = response.data;
-      
+
       // Store tokens and user data
       this.setToken(access_token);
       this.setRefreshToken(refresh_token);
@@ -125,7 +114,7 @@ class AuthService {
       });
 
       const { access_token, refresh_token: newRefreshToken } = response.data;
-      
+
       // Update stored tokens
       this.setToken(access_token);
       if (newRefreshToken) {
@@ -231,7 +220,7 @@ class AuthService {
   handleAuthError(error) {
     if (error.response) {
       const { status, data } = error.response;
-      
+
       switch (status) {
         case 400:
           return new Error(data.detail || 'Invalid request. Please check your input.');
@@ -262,16 +251,16 @@ class AuthService {
    */
   isTokenValid(token) {
     if (!token) return false;
-    
+
     try {
       // Basic JWT structure check (header.payload.signature)
       const parts = token.split('.');
       if (parts.length !== 3) return false;
-      
+
       // Decode payload to check expiration
       const payload = JSON.parse(atob(parts[1]));
       const currentTime = Math.floor(Date.now() / 1000);
-      
+
       return payload.exp && payload.exp > currentTime;
     } catch (error) {
       console.error('Token validation error:', error);
@@ -285,15 +274,15 @@ class AuthService {
    */
   async ensureValidToken() {
     const token = this.getToken();
-    
+
     if (!token) {
       return false;
     }
-    
+
     if (this.isTokenValid(token)) {
       return true;
     }
-    
+
     try {
       await this.refreshToken();
       return true;
@@ -316,7 +305,7 @@ class AuthService {
       });
 
       const { access_token, refresh_token, token_type, user } = response.data;
-      
+
       // Store tokens and user data
       this.setToken(access_token);
       this.setRefreshToken(refresh_token);

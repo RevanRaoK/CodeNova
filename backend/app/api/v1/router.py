@@ -16,4 +16,4 @@ api_router.include_router(monitoring.router, prefix="/monitoring", tags=["Monito
 api_router.include_router(github.router, tags=["GitHub Integration"])
 # The following line assumes you have created review.py and users.py endpoints similarly
 # api_router.include_router(review.router, prefix="/reviews", tags=["Reviews"])
-# api_router.include_router(users.router, prefix="/users", tags=["Users"])
+api_router.include_router(users.router, prefix="/users", tags=["Users"])

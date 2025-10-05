@@ -59,13 +59,17 @@ class FeedbackService {
   /**
    * Get feedback for a specific issue
    * @param {string} issueId - The issue ID
-   * @returns {Promise<Object>} Feedback data for the issue
+   * @returns {Promise<Object|null>} Feedback data for the issue, or null if no feedback exists
    */
   async getFeedbackByIssue(issueId) {
     try {
       const response = await httpClient.get(`/feedback/issue/${issueId}`);
       return this.processFeedbackResponse(response.data);
     } catch (error) {
+      // Handle 404 as "no feedback found" rather than an error
+      if (error.response && error.response.status === 404) {
+        return null;
+      }
       console.error('Failed to fetch issue feedback:', error);
       throw this.handleFeedbackError(error);
     }
@@ -77,6 +81,8 @@ class FeedbackService {
    * @param {number} [options.page] - Page number (1-based)
    * @param {number} [options.pageSize] - Items per page
    * @param {string} [options.feedbackType] - Filter by feedback type
+   * @param {string} [options.dateRange] - Filter by date range
+   * @param {string} [options.severity] - Filter by severity
    * @returns {Promise<Object>} List of user's feedback with pagination info
    */
   async getUserFeedbackHistory(options = {}) {
@@ -88,8 +94,24 @@ class FeedbackService {
 
       const response = await httpClient.get(`/feedback/history?${params}`);
       
+      // Map the backend response to frontend expected format
+      const feedbackRecords = response.data.feedback_records || [];
+      
       return {
-        feedback: response.data.feedback?.map(item => this.processFeedbackResponse(item)) || [],
+        feedback: feedbackRecords.map(item => ({
+          id: item.id,
+          issueId: item.issue_id,
+          feedbackType: item.feedback_type,
+          feedbackValue: item.feedback_value,
+          message: this.getFeedbackDisplayMessage(item.feedback_type, item.feedback_value),
+          createdAt: item.created_at,
+          isValidated: item.is_validated,
+          severity: this.mapFeedbackToSeverity(item.feedback_type, item.feedback_value),
+          context: `Issue ID: ${item.issue_id}`,
+          page: 'Code Review',
+          userAgent: navigator.userAgent,
+          status: item.is_validated ? 'resolved' : 'pending'
+        })),
         totalCount: response.data.total_count || 0,
         page: response.data.page || 1,
         pageSize: response.data.page_size || 20,
@@ -100,6 +122,36 @@ class FeedbackService {
       console.error('Failed to fetch feedback history:', error);
       throw this.handleFeedbackError(error);
     }
+  }
+
+  /**
+   * Get display message for feedback
+   * @param {string} feedbackType - The feedback type
+   * @param {number} feedbackValue - The feedback value
+   * @returns {string} Display message
+   */
+  getFeedbackDisplayMessage(feedbackType, feedbackValue) {
+    const messages = {
+      'accept': 'Accepted AI suggestion - found it helpful',
+      'reject': 'Rejected AI suggestion - not applicable or incorrect',
+      'modify': 'Modified AI suggestion - provided better alternative',
+      'ignore': 'Ignored AI suggestion - not relevant'
+    };
+    
+    return messages[feedbackType] || `Provided ${feedbackType} feedback`;
+  }
+
+  /**
+   * Map feedback to severity level
+   * @param {string} feedbackType - The feedback type
+   * @param {number} feedbackValue - The feedback value
+   * @returns {string} Severity level
+   */
+  mapFeedbackToSeverity(feedbackType, feedbackValue) {
+    if (feedbackType === 'accept') return 'low';
+    if (feedbackType === 'reject') return 'high';
+    if (feedbackType === 'modify') return 'medium';
+    return 'medium';
   }
 
   /**

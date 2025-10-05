@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
-import { SearchIcon, FilterIcon, ClockIcon, CodeIcon, AlertCircleIcon, AlertTriangleIcon, InfoIcon, ChevronDownIcon, ChevronRightIcon } from 'lucide-react'
+import { SearchIcon, FilterIcon, ClockIcon, CodeIcon, AlertCircleIcon, AlertTriangleIcon, InfoIcon, ChevronDownIcon, ChevronRightIcon, ThumbsUpIcon, ThumbsDownIcon, CheckCircleIcon, XCircleIcon } from 'lucide-react'
 import analysisService from '../services/analysisService'
+import feedbackService from '../services/feedbackService'
+import { FeedbackWidget } from '../components/FeedbackWidget'
 
 export function PatternLibrary() {
   const [searchQuery, setSearchQuery] = useState('')
@@ -214,8 +216,8 @@ export function PatternLibrary() {
                   <div className="flex items-center space-x-4">
                     {/* Status Badge */}
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${analysis.status === 'completed' ? 'bg-green-100 text-green-800' :
-                        analysis.status === 'failed' ? 'bg-red-100 text-red-800' :
-                          'bg-yellow-100 text-yellow-800'
+                      analysis.status === 'failed' ? 'bg-red-100 text-red-800' :
+                        'bg-yellow-100 text-yellow-800'
                       }`}>
                       {analysis.status}
                     </span>
@@ -339,6 +341,7 @@ function AnalysisIssuesGroup({ analysisId }) {
   const [issues, setIssues] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [issueFeedback, setIssueFeedback] = useState({}) // Store feedback for each issue
 
   useEffect(() => {
     fetchAnalysisDetails()
@@ -348,7 +351,11 @@ function AnalysisIssuesGroup({ analysisId }) {
     try {
       setLoading(true)
       const analysis = await analysisService.getAnalysisById(analysisId)
-      setIssues(analysis.issues || [])
+      const analysisIssues = analysis.issues || []
+      setIssues(analysisIssues)
+
+      // Fetch feedback for each issue
+      await fetchIssueFeedback(analysisIssues)
       setError(null)
     } catch (err) {
       console.error('Failed to fetch analysis details:', err)
@@ -356,6 +363,46 @@ function AnalysisIssuesGroup({ analysisId }) {
       setIssues([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchIssueFeedback = async (analysisIssues) => {
+    try {
+      const feedbackPromises = analysisIssues.map(async (issue) => {
+        try {
+          const feedback = await feedbackService.getFeedbackByIssue(issue.id)
+          return { issueId: issue.id, feedback }
+        } catch (error) {
+          // No feedback found for this issue
+          return { issueId: issue.id, feedback: null }
+        }
+      })
+
+      const feedbackResults = await Promise.all(feedbackPromises)
+      const feedbackMap = {}
+      feedbackResults.forEach(({ issueId, feedback }) => {
+        feedbackMap[issueId] = feedback
+      })
+      setIssueFeedback(feedbackMap)
+    } catch (error) {
+      console.error('Failed to fetch issue feedback:', error)
+    }
+  }
+
+  const handleFeedbackSubmit = async (feedbackData) => {
+    try {
+      // Update the local feedback state
+      setIssueFeedback(prev => ({
+        ...prev,
+        [feedbackData.suggestion.id]: {
+          type: feedbackData.feedbackType,
+          rejectionReasons: feedbackData.rejectionReasons,
+          timestamp: new Date(),
+          id: feedbackData.response.id
+        }
+      }))
+    } catch (error) {
+      console.error('Failed to handle feedback submission:', error)
     }
   }
 
