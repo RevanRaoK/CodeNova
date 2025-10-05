@@ -20,12 +20,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 router = APIRouter()
 
-def get_current_active_user(
+async def get_current_active_user(
     db: Session = Depends(get_db),
     token: str = Depends(oauth2_scheme)
 ) -> User:
     """Dependency to get the current active user from the token."""
-    user = AuthService.get_current_user(db, token)
+    user = await AuthService.get_current_user(token, db)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -34,7 +34,7 @@ def get_current_active_user(
         )
     return user
 
-def get_current_active_admin(
+async def get_current_active_admin(
     current_user: User = Depends(get_current_active_user)
 ) -> User:
     """Dependency to check if the current user is an admin."""
@@ -139,7 +139,7 @@ def refresh_token(
     return tokens
 
 @router.post("/logout")
-def logout(
+async def logout(
     refresh_token: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -154,7 +154,7 @@ def logout(
     return {"message": "Successfully logged out"}
 
 @router.get("/me", response_model=UserResponse)
-def read_user_me(
+async def read_user_me(
     current_user: User = Depends(get_current_active_user),
 ) -> Any:
     """Get current user."""

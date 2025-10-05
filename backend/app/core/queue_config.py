@@ -33,6 +33,9 @@ class RedisQueueConfig:
     REDIS_DB_QUEUE: int = int(os.getenv("REDIS_DB_QUEUE", "1"))  # Separate DB for queues
     REDIS_DB_RESULTS: int = int(os.getenv("REDIS_DB_RESULTS", "2"))  # Separate DB for results
     
+    # RabbitMQ Configuration (for hybrid mode)
+    RABBITMQ_URL: str = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+    
     # Queue Configuration
     QUEUE_PREFIX: str = "codenova:queue:"
     RESULT_PREFIX: str = "codenova:result:"

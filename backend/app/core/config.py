@@ -18,6 +18,17 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/google/callback"
+    
+    # GitHub Integration Configuration
+    GITHUB_APP_ID: str = ""
+    GITHUB_PRIVATE_KEY: str = ""
+    GITHUB_PRIVATE_KEY_PATH: str = ""
+    GITHUB_WEBHOOK_SECRET: str = ""
+    GITHUB_CLIENT_ID: str = ""
+    GITHUB_CLIENT_SECRET: str = ""
+    GITHUB_OAUTH_REDIRECT_URI: str = "http://localhost:8000/api/v1/github/oauth/callback"
+    GITHUB_API_BASE_URL: str = "https://api.github.com"
+    GITHUB_WEBHOOK_BASE_URL: str = "http://localhost:8000/api/v1/github"
 
     class Config:
         env_file = ".env"

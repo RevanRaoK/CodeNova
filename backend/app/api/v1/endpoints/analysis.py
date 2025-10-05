@@ -190,7 +190,7 @@ def run_code_analysis_background(repo_id: int, commit_hash: str):
 
 
 @router.post("/analyze-code")
-def analyze_code_direct(
+async def analyze_code_direct(
     request: DirectCodeAnalysisRequest,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
@@ -648,7 +648,7 @@ def test_direct_endpoint():
     return {"message": "Direct endpoint routing works!"}
 
 @router.get("/direct/history", status_code=200)
-def get_analysis_history(
+async def get_analysis_history(
     page: int = Query(default=1, ge=1, description="Page number"),
     page_size: int = Query(default=20, ge=1, le=100, description="Items per page"),
     language: Optional[str] = Query(default=None, description="Filter by programming language"),
@@ -726,7 +726,7 @@ def get_analysis_history(
         }
 
 @router.get("/direct/stats", status_code=200)
-def get_analysis_stats(
+async def get_analysis_stats(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -819,7 +819,7 @@ def get_analysis_stats(
         }
 
 @router.delete("/direct/{analysis_id}")
-def delete_direct_analysis(
+async def delete_direct_analysis(
     analysis_id: str,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
@@ -844,7 +844,7 @@ def delete_direct_analysis(
 
 # This route must come LAST to avoid conflicts with specific routes like /direct/history
 @router.get("/direct/{analysis_id}")
-def get_direct_analysis_by_id(
+async def get_direct_analysis_by_id(
     analysis_id: str,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
@@ -966,7 +966,7 @@ class AnalysisIssuesResponse(BaseModel):
 # New endpoints for issue retrieval (Task 9.2)
 
 @router.get("/issues/{issue_id}", response_model=IssueDetailResponse)
-def get_issue_by_id(
+async def get_issue_by_id(
     issue_id: str = Path(..., description="Unique issue identifier"),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
@@ -1043,7 +1043,7 @@ def get_issue_by_id(
 
 
 @router.get("/analyses/{analysis_id}/issues", response_model=AnalysisIssuesResponse)
-def get_analysis_issues(
+async def get_analysis_issues(
     analysis_id: str = Path(..., description="Analysis identifier"),
     severity: Optional[str] = Query(None, description="Filter by severity (info, warning, error)"),
     status: Optional[str] = Query(None, description="Filter by status (active, resolved, ignored)"),

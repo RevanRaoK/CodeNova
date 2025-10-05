@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from .endpoints import repository, analysis, review, users, auth, files, feedback, analytics, admin, file_storage, queue_monitoring
+from .endpoints import repository, analysis, review, users, auth, files, feedback, analytics, admin, file_storage, monitoring, github
 
 api_router = APIRouter()
 
@@ -12,7 +12,8 @@ api_router.include_router(file_storage.router, prefix="/storage", tags=["File St
 api_router.include_router(feedback.router, tags=["Feedback"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])
-api_router.include_router(queue_monitoring.router, prefix="/queue", tags=["Queue Monitoring"])
+api_router.include_router(monitoring.router, prefix="/monitoring", tags=["Monitoring"])
+api_router.include_router(github.router, tags=["GitHub Integration"])
 # The following line assumes you have created review.py and users.py endpoints similarly
 # api_router.include_router(review.router, prefix="/reviews", tags=["Reviews"])
 # api_router.include_router(users.router, prefix="/users", tags=["Users"])
