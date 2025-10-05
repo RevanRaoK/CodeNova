@@ -110,7 +110,7 @@ class AuthService:
         return True
 
     @staticmethod
-    def get_current_user(db: Session, token: str) -> Optional[User]:
+    async def get_current_user(token: str, db: Session) -> Optional[User]:
         """Get the current user from a JWT token."""
         payload = verify_token(token)
         if not payload or payload.get("type") != "access":

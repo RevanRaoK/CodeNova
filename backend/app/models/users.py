@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Enum, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Enum, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 import datetime
 from enum import Enum as PyEnum
+import uuid
 
 from app.core.database import Base
 
@@ -10,6 +11,8 @@ class UserRole(str, PyEnum):
     DEVELOPER = "developer"
     REVIEWER = "reviewer"
     GUEST = "guest"
+    USER = "user"
+    TEAM_LEAD = "team_lead"
 
 class User(Base):
     __tablename__ = "users"
@@ -18,9 +21,13 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     full_name = Column(String(255), nullable=True)
     hashed_password = Column(String(255), nullable=True)  # Make nullable for OAuth users
-    role = Column(Enum(UserRole), default=UserRole.GUEST, nullable=False)
+    role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
+    
+    # Enhanced user management fields
+    team_id = Column(String(36), nullable=True, index=True)  # Will add FK constraint in migration
+    preferences = Column(JSON, default=dict, nullable=False)
     
     # OAuth fields
     oauth_provider = Column(String(50), nullable=True)  # 'google', 'github', etc.

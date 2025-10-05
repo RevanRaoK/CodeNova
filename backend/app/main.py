@@ -33,6 +33,28 @@ async def startup_create_tables():
         # Avoid crashing the app; log and continue
         print(f"DB startup create_all skipped/failed: {e}")
 
+# Start analytics background tasks
+@app.on_event("startup")
+async def startup_analytics_tasks():
+    try:
+        from app.tasks.analytics_tasks import start_analytics_background_tasks
+        # Start background tasks in a separate task to avoid blocking startup
+        import asyncio
+        asyncio.create_task(start_analytics_background_tasks())
+        print("Analytics background tasks started")
+    except Exception as e:
+        print(f"Failed to start analytics background tasks: {e}")
+
+# Stop analytics background tasks on shutdown
+@app.on_event("shutdown")
+async def shutdown_analytics_tasks():
+    try:
+        from app.tasks.analytics_tasks import stop_analytics_background_tasks
+        await stop_analytics_background_tasks()
+        print("Analytics background tasks stopped")
+    except Exception as e:
+        print(f"Error stopping analytics background tasks: {e}")
+
 # Mount the API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
 

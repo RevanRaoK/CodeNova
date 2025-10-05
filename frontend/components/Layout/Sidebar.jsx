@@ -5,6 +5,7 @@ import {
   LayoutDashboardIcon,
   CodeIcon,
   LibraryIcon,
+  BarChart3Icon,
   SettingsIcon,
   UserIcon,
   XIcon,
@@ -76,6 +77,19 @@ export function Sidebar({ isOpen, setIsOpen }) {
           >
             <LibraryIcon className="mr-3 h-5 w-5" />
             Analysis History
+          </NavLink>
+          <NavLink
+            to="/feedback-dashboard"
+            className={({ isActive }) =>
+              `flex items-center px-4 py-2 text-sm rounded-md ${
+                isActive
+                  ? 'bg-indigo-800 text-white'
+                  : 'text-indigo-100 hover:bg-indigo-600'
+              }`
+            }
+          >
+            <BarChart3Icon className="mr-3 h-5 w-5" />
+            Feedback Dashboard
           </NavLink>
           <NavLink
             to="/settings"

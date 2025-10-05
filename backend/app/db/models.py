@@ -1,4 +1,4 @@
-from sqlalchemy import (Column, Integer, String, Text, DateTime, ForeignKey, create_engine, Enum)
+from sqlalchemy import (Column, Integer, String, Text, DateTime, ForeignKey, create_engine, Enum, JSON, Boolean)
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
@@ -66,3 +66,31 @@ class Feedback(Base):
     comment = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     suggestion = relationship("ReviewSuggestion", back_populates="feedback")
+
+
+class StoredFile(Base):
+    """Model for storing uploaded files and their metadata."""
+    __tablename__ = "stored_files"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    filename = Column(String, nullable=False)
+    original_filename = Column(String, nullable=False)
+    file_type = Column(String, nullable=False)  # python, javascript, etc.
+    file_size = Column(Integer, nullable=False)
+    storage_path = Column(String, nullable=False)  # Path in storage system
+    
+    # Processing status
+    processing_status = Column(String, default="pending")  # pending, processing, completed, failed
+    analysis_status = Column(String, default="pending")    # pending, processing, completed, failed
+    
+    # File metadata
+    file_metadata = Column(JSON, nullable=True)  # File metadata (line count, etc.)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_analyzed = Column(DateTime, nullable=True)
+    
+    # Relationships
+    owner = relationship("User", backref="stored_files")

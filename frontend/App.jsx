@@ -9,6 +9,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import { Home } from './pages/Home'
 import { CodeReview } from './pages/CodeReview'
 import { PatternLibrary } from './pages/PatternLibrary'
+import { FeedbackDashboard } from './pages/FeedbackDashboard'
 import { Settings } from './pages/Settings'
 import { Profile } from './pages/Profile'
 import { Login } from './pages/Login'
@@ -183,6 +184,7 @@ export function App() {
                     <Route path="/" element={<Home />} />
                     <Route path="/code-review" element={<CodeReview />} />
                     <Route path="/pattern-library" element={<PatternLibrary />} />
+                    <Route path="/feedback-dashboard" element={<FeedbackDashboard />} />
                     <Route path="/settings" element={<Settings />} />
                     <Route path="/profile" element={<Profile />} />
                     <Route path="/monaco-test" element={<MonacoEditorTest />} />
