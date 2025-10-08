@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any
 from jose import JWTError
 from sqlalchemy.orm import Session
 
-from app.core.security import (
+from ..core.security import (
     get_password_hash,
     verify_password,
     create_access_token,
@@ -11,8 +11,9 @@ from app.core.security import (
     verify_token,
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
-from app.models.users import User, Token, UserRole
-from app.schemas.user import UserCreate, UserResponse, TokenPayload
+from ..models import User, Token
+from ..models.users import UserRole
+from ..schemas.user import UserCreate, UserResponse, TokenPayload
 
 class AuthService:
     @staticmethod

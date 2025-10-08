@@ -1,0 +1,95 @@
+{
+  "timestamp": "2025-10-07T17:09:45.009Z",
+  "bundleAnalysis": {
+    "totalSize": 1024481,
+    "jsFiles": [
+      {
+        "name": "charts-B1wmz9_u.js",
+        "path": "assets\\js\\charts-B1wmz9_u.js",
+        "size": 289536,
+        "sizeKB": 282.75,
+        "sizeMB": 0.28
+      },
+      {
+        "name": "react-vendor-CvALNzzX.js",
+        "path": "assets\\js\\react-vendor-CvALNzzX.js",
+        "size": 252073,
+        "sizeKB": 246.17,
+        "sizeMB": 0.24
+      },
+      {
+        "name": "pages-Di4GeUTY.js",
+        "path": "assets\\js\\pages-Di4GeUTY.js",
+        "size": 179220,
+        "sizeKB": 175.02,
+        "sizeMB": 0.17
+      },
+      {
+        "name": "index-ClWnZuc7.js",
+        "path": "assets\\index-ClWnZuc7.js",
+        "size": 113436,
+        "sizeKB": 110.78,
+        "sizeMB": 0.11
+      },
+      {
+        "name": "vendor-BrP2uCDu.js",
+        "path": "assets\\js\\vendor-BrP2uCDu.js",
+        "size": 72474,
+        "sizeKB": 70.78,
+        "sizeMB": 0.07
+      },
+      {
+        "name": "admin-Dlpqg4Kk.js",
+        "path": "assets\\js\\admin-Dlpqg4Kk.js",
+        "size": 52209,
+        "sizeKB": 50.99,
+        "sizeMB": 0.05
+      },
+      {
+        "name": "http-CK_ofFhv.js",
+        "path": "assets\\js\\http-CK_ofFhv.js",
+        "size": 35862,
+        "sizeKB": 35.02,
+        "sizeMB": 0.03
+      },
+      {
+        "name": "monaco-editor-CRZtNfM-.js",
+        "path": "assets\\js\\monaco-editor-CRZtNfM-.js",
+        "size": 10923,
+        "sizeKB": 10.67,
+        "sizeMB": 0.01
+      },
+      {
+        "name": "sw.js",
+        "path": "sw.js",
+        "size": 10625,
+        "sizeKB": 10.38,
+        "sizeMB": 0.01
+      }
+    ],
+    "cssFiles": [],
+    "assetFiles": [
+      {
+        "name": "index.html",
+        "path": "index.html",
+        "size": 5416,
+        "sizeKB": 5.29,
+        "sizeMB": 0.01
+      },
+      {
+        "name": "manifest.json",
+        "path": "manifest.json",
+        "size": 2707,
+        "sizeKB": 2.64,
+        "sizeMB": 0
+      }
+    ],
+    "chunks": {
+      "app": 680888,
+      "monaco": 10923,
+      "vendor": 324547
+    }
+  },
+  "recommendations": [],
+  "performance": {}
+}

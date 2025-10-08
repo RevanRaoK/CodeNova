@@ -17,11 +17,11 @@ from sqlalchemy import func, and_, or_, desc, text
 from collections import defaultdict, Counter
 import json
 import redis
-from app.models.feedback import FeedbackRecord, Issue, ModelVersion
-from app.models.enhanced_feedback import EnhancedFeedback, FeedbackAction
-from app.models.users import User
-from app.schemas.feedback import DateRange
-from app.core.analytics_config import analytics_config
+from ..models import User, Feedback, EnhancedFeedback, FeedbackAction
+from ..models.feedback import ModelVersion, FeedbackRecord
+from ..schemas.feedback import FeedbackCreate, DateRange
+from ..core.config import settings
+from ..core.analytics_config import analytics_config
 import logging
 
 logger = logging.getLogger(__name__)

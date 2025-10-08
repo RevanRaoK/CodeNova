@@ -19,6 +19,9 @@ from app.api.v1.endpoints.auth import get_current_active_user
 from app.models.users import User
 from app.services.file_storage_service import file_storage_service, FileStorageError
 from pydantic import BaseModel, Field
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -121,10 +124,119 @@ async def upload_file(
             }
         )
     except Exception as e:
+        logger.error(f"File upload failed: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Unexpected error during file upload: {str(e)}"
         )
+
+
+class MultipleFileUploadResponse(BaseModel):
+    """Response model for multiple file upload"""
+    uploaded_files: List[FileUploadResponse] = Field(description="List of successfully uploaded files")
+    failed_files: List[dict] = Field(description="List of files that failed to upload")
+    total_files: int = Field(description="Total number of files processed")
+    successful_uploads: int = Field(description="Number of successful uploads")
+    failed_uploads: int = Field(description="Number of failed uploads")
+
+
+@router.post("/upload-multiple", response_model=MultipleFileUploadResponse)
+async def upload_multiple_files(
+    files: List[UploadFile] = File(..., description="Multiple files to upload"),
+    metadata: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload multiple files to Digital Ocean Spaces with metadata storage.
+    
+    Args:
+        files: List of files to upload
+        metadata: Optional JSON string with additional metadata (applied to all files)
+        current_user: Authenticated user
+        db: Database session
+        
+    Returns:
+        MultipleFileUploadResponse with upload results for each file
+    """
+    if not files:
+        raise HTTPException(
+            status_code=400,
+            detail="No files provided for upload"
+        )
+    
+    if len(files) > 10:  # Limit to 10 files per request
+        raise HTTPException(
+            status_code=400,
+            detail="Too many files. Maximum 10 files per request."
+        )
+    
+    # Parse metadata if provided
+    file_metadata = {}
+    if metadata:
+        import json
+        try:
+            file_metadata = json.loads(metadata)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid metadata format. Must be valid JSON."
+            )
+    
+    uploaded_files = []
+    failed_files = []
+    
+    for i, file in enumerate(files):
+        try:
+            # Add file index to metadata
+            current_metadata = file_metadata.copy()
+            current_metadata.update({
+                "batch_upload": True,
+                "file_index": i,
+                "total_files": len(files)
+            })
+            
+            # Upload file using the service
+            result = await file_storage_service.upload_file(
+                file=file,
+                user=current_user,
+                db=db,
+                metadata=current_metadata
+            )
+            
+            uploaded_files.append(FileUploadResponse(
+                file_id=result.file_id,
+                filename=result.filename,
+                file_size=result.file_size,
+                content_type=result.content_type,
+                spaces_url=result.spaces_url,
+                file_hash=result.file_hash,
+                uploaded_at=result.uploaded_at
+            ))
+            
+        except FileStorageError as e:
+            failed_files.append({
+                "filename": file.filename,
+                "error_code": e.error_code,
+                "error_message": e.message,
+                "details": e.details
+            })
+        except Exception as e:
+            failed_files.append({
+                "filename": file.filename,
+                "error_code": "UNEXPECTED_ERROR",
+                "error_message": str(e),
+                "details": {}
+            })
+    
+    return MultipleFileUploadResponse(
+        uploaded_files=uploaded_files,
+        failed_files=failed_files,
+        total_files=len(files),
+        successful_uploads=len(uploaded_files),
+        failed_uploads=len(failed_files)
+    )
+
 
 
 @router.get("/download/{file_id}")

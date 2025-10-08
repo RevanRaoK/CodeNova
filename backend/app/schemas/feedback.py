@@ -38,6 +38,22 @@ class ReviewContext(str, Enum):
     PRODUCTION = "production"
 
 
+class FeedbackCreate(BaseModel):
+    """Schema for creating feedback records."""
+    
+    issue_id: str = Field(..., description="Unique identifier for the code issue")
+    feedback_type: FeedbackType = Field(..., description="Type of feedback (accept/reject/modify/ignore)")
+    feedback_comment: Optional[str] = Field(None, max_length=1000, description="Optional user comment")
+    feedback_value: int = Field(..., description="Numeric feedback value (1=positive, -1=negative, 0=neutral)")
+    
+    @field_validator('issue_id')
+    @classmethod
+    def validate_issue_id(cls, v):
+        """Validate issue ID format."""
+        if not v:
+            raise ValueError("Issue ID is required")
+        return v.lower()
+
 class FeedbackSubmissionRequest(BaseModel):
     """Schema for submitting feedback on AI suggestions."""
     
@@ -257,16 +273,6 @@ class BulkFeedbackRequest(BaseModel):
         return v
 
 
-class FeedbackHistoryResponse(BaseModel):
-    """Schema for user's feedback history."""
-    
-    feedback_records: List[FeedbackResponse] = Field(..., description="List of user's feedback records")
-    total_count: int = Field(..., description="Total number of feedback records")
-    page: int = Field(..., description="Current page number")
-    page_size: int = Field(..., description="Number of records per page")
-    has_next: bool = Field(..., description="Whether there are more records")
-
-
 class DateRange(BaseModel):
     """Schema for date range filters."""
     
@@ -284,6 +290,19 @@ class DateRange(BaseModel):
             raise ValueError("Date range cannot exceed 365 days")
         
         return self
+
+
+class FeedbackHistoryResponse(BaseModel):
+    """Schema for user's feedback history."""
+    
+    feedback_records: List[FeedbackResponse] = Field(..., description="List of user's feedback records")
+    total_count: int = Field(..., description="Total number of feedback records")
+    page: int = Field(..., description="current page number")
+    page_size: int = Field(..., description="Number of records per page")
+    has_next: bool = Field(..., description="Whether there are more records")
+
+
+
 
 
 class UserPermissionLevel(str, Enum):

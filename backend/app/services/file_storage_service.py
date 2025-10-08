@@ -74,20 +74,19 @@ class FileStorageService:
     
     def __init__(self):
         """Initialize the file storage service with Digital Ocean Spaces configuration"""
-        self.spaces_key = os.getenv('DO_SPACES_KEY')
-        self.spaces_secret = os.getenv('DO_SPACES_SECRET')
-        self.bucket_name = os.getenv('DO_SPACES_BUCKET')
-        self.region = os.getenv('DO_SPACES_REGION', 'nyc3')
-        self.endpoint_url = os.getenv('DO_SPACES_ENDPOINT')
+        self.spaces_key = settings.DO_SPACES_KEY
+        self.spaces_secret = settings.DO_SPACES_SECRET
+        self.bucket_name = settings.DO_SPACES_BUCKET
+        self.region = settings.DO_SPACES_REGION
+        self.endpoint_url = settings.DO_SPACES_ENDPOINT
         
         # File storage settings
-        self.max_file_size = int(os.getenv('MAX_FILE_SIZE_MB', '50')) * 1024 * 1024  # Convert to bytes
-        self.upload_path = os.getenv('FILE_UPLOAD_PATH', 'uploads/')
-        self.signed_url_expiration = int(os.getenv('SIGNED_URL_EXPIRATION_HOURS', '24'))
+        self.max_file_size = settings.MAX_FILE_SIZE_MB * 1024 * 1024  # Convert to bytes
+        self.upload_path = settings.FILE_UPLOAD_PATH
+        self.signed_url_expiration = settings.SIGNED_URL_EXPIRATION_HOURS
         
         # Allowed file extensions
-        allowed_extensions = os.getenv('ALLOWED_FILE_EXTENSIONS', 
-                                     'pdf,doc,docx,txt,jpg,jpeg,png,gif,zip,csv,xlsx,xls,ppt,pptx')
+        allowed_extensions = settings.ALLOWED_FILE_EXTENSIONS
         self.allowed_extensions = set(ext.strip().lower() for ext in allowed_extensions.split(','))
         
         # Initialize S3 client for Digital Ocean Spaces
@@ -108,12 +107,15 @@ class FileStorageService:
         
         missing_configs = [key for key, value in required_configs.items() if not value]
         if missing_configs:
+            print(f"Missing Digital Ocean Spaces configuration: {missing_configs}")
+            print(f"Current config values: {[(k, 'SET' if v else 'NOT SET') for k, v in required_configs.items()]}")
             raise FileStorageError(
                 f"Missing required configuration: {', '.join(missing_configs)}",
                 error_code="CONFIG_ERROR",
                 details={"missing_configs": missing_configs}
             )
         
+        print("Digital Ocean Spaces configuration validated successfully")
         self._config_validated = True
     
     @property
@@ -162,12 +164,23 @@ class FileStorageService:
     
     def _calculate_file_hash(self, file_content: bytes) -> str:
         """Calculate SHA-256 hash of file content"""
+        if not isinstance(file_content, bytes):
+            raise FileStorageError(
+                f"Cannot calculate hash for non-bytes content: {type(file_content)}",
+                error_code="INVALID_CONTENT_TYPE"
+            )
         return hashlib.sha256(file_content).hexdigest()
     
-    def _validate_file(self, file: UploadFile) -> None:
+    def _validate_file(self, file, file_size: int = None) -> None:
         """Validate uploaded file against security and size constraints"""
         # Check file size
-        if hasattr(file, 'size') and file.size > self.max_file_size:
+        if file_size and file_size > self.max_file_size:
+            raise FileStorageError(
+                f"File size {file_size} exceeds maximum allowed size {self.max_file_size}",
+                error_code="FILE_TOO_LARGE",
+                details={"file_size": file_size, "max_size": self.max_file_size}
+            )
+        elif hasattr(file, 'size') and file.size and file.size > self.max_file_size:
             raise FileStorageError(
                 f"File size {file.size} exceeds maximum allowed size {self.max_file_size}",
                 error_code="FILE_TOO_LARGE",
@@ -175,8 +188,9 @@ class FileStorageService:
             )
         
         # Check file extension
-        if file.filename:
-            file_ext = Path(file.filename).suffix.lower().lstrip('.')
+        filename = getattr(file, 'filename', None)
+        if filename:
+            file_ext = Path(filename).suffix.lower().lstrip('.')
             if file_ext not in self.allowed_extensions:
                 raise FileStorageError(
                     f"File extension '{file_ext}' is not allowed",
@@ -210,28 +224,30 @@ class FileStorageService:
             # Validate configuration first
             self._validate_configuration()
             
-            # Validate file
-            self._validate_file(file)
-            
-            # Read file content
+            # Read file content first
             file_content = await file.read()
-            file_size = len(file_content)
-            
-            # Additional size check after reading
-            if file_size > self.max_file_size:
+            if not isinstance(file_content, bytes):
                 raise FileStorageError(
-                    f"File size {file_size} exceeds maximum allowed size {self.max_file_size}",
-                    error_code="FILE_TOO_LARGE"
+                    f"Invalid file content type: {type(file_content)}. Expected bytes.",
+                    error_code="INVALID_CONTENT_TYPE"
                 )
             
+            file_size = len(file_content)
+            print(f"DEBUG: File content type: {type(file_content)}, size: {file_size}")
+            
+            # Validate file with actual size
+            self._validate_file(file, file_size)
+            
             # Calculate file hash
+            print(f"DEBUG: About to calculate hash for content type: {type(file_content)}")
             file_hash = self._calculate_file_hash(file_content)
             
             # Generate unique file key
             file_key = self._generate_file_key(user.id, file.filename)
             
             # Determine content type
-            content_type = file.content_type or mimetypes.guess_type(file.filename)[0] or 'application/octet-stream'
+            filename = getattr(file, 'filename', 'unknown')
+            content_type = getattr(file, 'content_type', None) or mimetypes.guess_type(filename)[0] or 'application/octet-stream'
             
             # Upload to Spaces
             try:
@@ -242,10 +258,10 @@ class FileStorageService:
                     ContentType=content_type,
                     Metadata={
                         'user_id': str(user.id),
-                        'original_filename': file.filename,
+                        'original_filename': filename,
                         'file_hash': file_hash,
                         'upload_timestamp': datetime.utcnow().isoformat(),
-                        **(metadata or {})
+                        **{str(k): str(v) for k, v in (metadata or {}).items()}
                     }
                 )
             except ClientError as e:
@@ -256,15 +272,21 @@ class FileStorageService:
                 )
             
             # Create database record
+            file_id = str(uuid.uuid4())
+            spaces_url = f"{self.endpoint_url}/{self.bucket_name}/{file_key}"
+            
             stored_file = StoredFile(
-                file_id=str(uuid.uuid4()),
+                id=file_id,
                 user_id=user.id,
-                filename=file.filename,
-                file_key=file_key,
+                filename=filename,
+                original_filename=filename,
+                file_path=file_key,
+                spaces_key=file_key,
+                bucket_name=self.bucket_name,
+                spaces_url=spaces_url,
                 file_size=file_size,
                 content_type=content_type,
                 file_hash=file_hash,
-                metadata=metadata or {},
                 uploaded_at=datetime.utcnow()
             )
             
@@ -272,15 +294,12 @@ class FileStorageService:
             db.commit()
             db.refresh(stored_file)
             
-            # Generate public URL
-            spaces_url = f"{self.endpoint_url}/{self.bucket_name}/{file_key}"
-            
             return FileUploadResult(
-                file_id=stored_file.file_id,
+                file_id=stored_file.id,
                 filename=stored_file.filename,
                 file_size=stored_file.file_size,
                 content_type=stored_file.content_type,
-                spaces_url=spaces_url,
+                spaces_url=stored_file.spaces_url,
                 file_hash=stored_file.file_hash,
                 uploaded_at=stored_file.uploaded_at
             )
@@ -316,7 +335,7 @@ class FileStorageService:
         try:
             # Get file record from database
             stored_file = db.query(StoredFile).filter(
-                StoredFile.file_id == file_id,
+                StoredFile.id == file_id,
                 StoredFile.user_id == user.id  # Ensure user owns the file
             ).first()
             
@@ -330,7 +349,7 @@ class FileStorageService:
             try:
                 response = self.client.get_object(
                     Bucket=self.bucket_name,
-                    Key=stored_file.file_key
+                    Key=stored_file.spaces_key
                 )
                 file_content = response['Body'].read()
                 
@@ -348,7 +367,7 @@ class FileStorageService:
                     )
             
             return FileDownloadResult(
-                file_id=stored_file.file_id,
+                file_id=stored_file.id,
                 filename=stored_file.filename,
                 content=file_content,
                 content_type=stored_file.content_type,
@@ -386,7 +405,7 @@ class FileStorageService:
         try:
             # Get file record from database
             stored_file = db.query(StoredFile).filter(
-                StoredFile.file_id == file_id,
+                StoredFile.id == file_id,
                 StoredFile.user_id == user.id  # Ensure user owns the file
             ).first()
             
@@ -400,7 +419,7 @@ class FileStorageService:
             try:
                 self.client.delete_object(
                     Bucket=self.bucket_name,
-                    Key=stored_file.file_key
+                    Key=stored_file.spaces_key
                 )
             except ClientError as e:
                 # Log warning but don't fail if file doesn't exist in storage
@@ -453,21 +472,20 @@ class FileStorageService:
             stored_files = files_query.all()
             
             # Calculate total size
-            total_size = db.query(StoredFile).filter(StoredFile.user_id == user.id).with_entities(
-                db.func.sum(StoredFile.file_size)
-            ).scalar() or 0
+            from sqlalchemy import func
+            total_size = db.query(func.sum(StoredFile.file_size)).filter(StoredFile.user_id == user.id).scalar() or 0
             
             # Format file list
             files = []
             for stored_file in stored_files:
                 files.append({
-                    'file_id': stored_file.file_id,
+                    'file_id': stored_file.id,
                     'filename': stored_file.filename,
                     'file_size': stored_file.file_size,
                     'content_type': stored_file.content_type,
                     'file_hash': stored_file.file_hash,
                     'uploaded_at': stored_file.uploaded_at.isoformat(),
-                    'metadata': stored_file.metadata
+                    'metadata': {}  # No metadata field in current model
                 })
             
             return FileListResult(
@@ -507,7 +525,7 @@ class FileStorageService:
         try:
             # Get file record from database
             stored_file = db.query(StoredFile).filter(
-                StoredFile.file_id == file_id,
+                StoredFile.id == file_id,
                 StoredFile.user_id == user.id  # Ensure user owns the file
             ).first()
             
@@ -526,7 +544,7 @@ class FileStorageService:
                     'get_object',
                     Params={
                         'Bucket': self.bucket_name,
-                        'Key': stored_file.file_key
+                        'Key': stored_file.spaces_key
                     },
                     ExpiresIn=expiration_seconds
                 )
@@ -570,7 +588,7 @@ class FileStorageService:
         try:
             # Get file record from database
             stored_file = db.query(StoredFile).filter(
-                StoredFile.file_id == file_id,
+                StoredFile.id == file_id,
                 StoredFile.user_id == user.id  # Ensure user owns the file
             ).first()
             
@@ -581,13 +599,13 @@ class FileStorageService:
                 )
             
             return {
-                'file_id': stored_file.file_id,
+                'file_id': stored_file.id,
                 'filename': stored_file.filename,
                 'file_size': stored_file.file_size,
                 'content_type': stored_file.content_type,
                 'file_hash': stored_file.file_hash,
                 'uploaded_at': stored_file.uploaded_at.isoformat(),
-                'metadata': stored_file.metadata
+                'metadata': {}  # No metadata field in current model
             }
             
         except FileStorageError:

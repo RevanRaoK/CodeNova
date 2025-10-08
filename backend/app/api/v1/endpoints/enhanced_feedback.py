@@ -20,6 +20,7 @@ from app.models.enhanced_feedback import FeedbackAction
 from app.services.enhanced_feedback_service import EnhancedFeedbackService
 from app.repositories.feedback_repository import FeedbackRepository
 from app.api.v1.endpoints.auth import get_current_active_user
+from app.schemas.rejection_reasons import RejectionReasonInfo, validate_rejection_reasons, get_rejection_reasons_for_api, get_rejection_reasons_by_category
 
 router = APIRouter()
 
@@ -44,7 +45,12 @@ class FeedbackSubmissionRequest(BaseModel):
     @classmethod
     def validate_rejection_reasons(cls, v, info):
         """Validate rejection reasons are provided for reject actions."""
-        # Note: We can't access other fields in field_validator, so we'll validate in the endpoint
+        if v is not None:
+            # Validate that all provided reasons are valid
+            try:
+                RejectionReasonInfo.validate_reasons(v)
+            except ValueError as e:
+                raise ValueError(f"Invalid rejection reasons: {str(e)}")
         return v
     
     @field_validator('custom_reason')
@@ -95,6 +101,24 @@ class FeedbackHistoryResponse(BaseModel):
     has_next: bool = Field(..., description="Whether there are more records")
 
 
+@router.get("/rejection-reasons")
+def get_rejection_reasons() -> Dict[str, Any]:
+    """
+    Get all available rejection reasons with descriptions and categories.
+    
+    This endpoint returns the comprehensive list of rejection reasons that users
+    can select when rejecting AI suggestions, organized by category.
+    
+    Returns:
+        Dictionary containing rejection reasons organized by category with descriptions
+    """
+    return {
+        "rejection_reasons": get_rejection_reasons_for_api(),
+        "categories": get_rejection_reasons_by_category(),
+        "total_reasons": len(RejectionReasonInfo.get_all_reasons())
+    }
+
+
 @router.post("/feedback", response_model=FeedbackResponse, status_code=status.HTTP_201_CREATED)
 def submit_feedback(
     *,
@@ -112,12 +136,20 @@ def submit_feedback(
     """
     try:
         # Validate rejection reasons for reject actions
-        if (feedback_request.action == FeedbackAction.REJECT and 
-            not feedback_request.rejection_reasons):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Rejection reasons are required when rejecting a suggestion"
-            )
+        if feedback_request.action == FeedbackAction.REJECT:
+            if not feedback_request.rejection_reasons:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Rejection reasons are required when rejecting a suggestion. Use GET /rejection-reasons to see available options."
+                )
+            
+            # Validate that all provided reasons are valid
+            if not validate_rejection_reasons(feedback_request.rejection_reasons):
+                valid_reasons = [r.value for r in RejectionReasonInfo.get_all_reasons()]
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid rejection reasons provided. Valid options are: {valid_reasons}"
+                )
         
         feedback_service = EnhancedFeedbackService(db)
         feedback_record = feedback_service.create_feedback(

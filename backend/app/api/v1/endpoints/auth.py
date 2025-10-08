@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from typing import Any
+from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.core.security import ACCESS_TOKEN_EXPIRE_MINUTES
@@ -163,13 +164,16 @@ def login_json(
             detail=f"Login failed: {str(e)}"
         )
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
 @router.post("/refresh-token", response_model=dict)
 def refresh_token(
-    refresh_token: str,
+    request: RefreshTokenRequest,
     db: Session = Depends(get_db),
 ) -> Any:
     """Refresh an access token using a refresh token."""
-    tokens = AuthService.refresh_access_token(db, refresh_token)
+    tokens = AuthService.refresh_access_token(db, request.refresh_token)
     if not tokens:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

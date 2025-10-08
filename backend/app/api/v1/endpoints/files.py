@@ -419,6 +419,284 @@ async def upload_file(
             }
         )
 
+@router.post("/upload-multiple", response_model=list[FileUploadResponse])
+async def upload_multiple_files(
+    files: list[UploadFile] = File(..., description="Multiple code files to upload"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload and process multiple code files with enhanced validation.
+    
+    This endpoint handles multiple file uploads, validates content, detects programming languages,
+    and returns structured file information for batch code review.
+    
+    Requirements covered: 4.1, 4.3, 4.4
+    """
+    if not files:
+        raise HTTPException(
+            status_code=400,
+            detail="No files provided for upload"
+        )
+    
+    if len(files) > 10:  # Limit to 10 files per request
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "too_many_files",
+                "message": f"Too many files: {len(files)}. Maximum allowed: 10",
+                "file_count": len(files),
+                "max_files": 10
+            }
+        )
+    
+    results = []
+    errors = []
+    
+    for i, file in enumerate(files):
+        try:
+            # Process each file individually
+            upload_id = str(uuid.uuid4())
+            uploaded_at = datetime.utcnow()
+            
+            # Validate filename
+            if not file.filename:
+                errors.append({
+                    "file_index": i,
+                    "filename": f"file_{i}",
+                    "error": "missing_filename",
+                    "message": "Filename is required"
+                })
+                continue
+            
+            # Validate file extension
+            file_path = Path(file.filename)
+            file_ext = file_path.suffix.lower()
+            
+            if file_ext not in SUPPORTED_EXTENSIONS:
+                errors.append({
+                    "file_index": i,
+                    "filename": file.filename,
+                    "error": "unsupported_file_type",
+                    "message": f"Unsupported file type: {file_ext}"
+                })
+                continue
+            
+            # Read and validate file size
+            content_bytes = await file.read()
+            file_size_bytes = len(content_bytes)
+            file_size_kb = file_size_bytes / 1024
+            
+            if file_size_bytes > MAX_FILE_SIZE_BYTES:
+                errors.append({
+                    "file_index": i,
+                    "filename": file.filename,
+                    "error": "file_too_large",
+                    "message": f"File too large: {file_size_kb:.1f}KB. Maximum allowed: {MAX_FILE_SIZE_KB:.0f}KB"
+                })
+                continue
+            
+            # Decode content
+            file_content = None
+            for encoding in ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252']:
+                try:
+                    file_content = content_bytes.decode(encoding)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            if file_content is None:
+                errors.append({
+                    "file_index": i,
+                    "filename": file.filename,
+                    "error": "encoding_error",
+                    "message": "Unable to decode file. File must be a valid text file."
+                })
+                continue
+            
+            # Validate content
+            content_validation = validate_file_content(file_content, file.filename)
+            if content_validation:
+                errors.append({
+                    "file_index": i,
+                    "filename": file.filename,
+                    "error": content_validation.error_type,
+                    "message": content_validation.message
+                })
+                continue
+            
+            # Count lines
+            lines = file_content.split('\n')
+            lines_count = len(lines)
+            
+            if lines_count > MAX_LINES:
+                errors.append({
+                    "file_index": i,
+                    "filename": file.filename,
+                    "error": "too_many_lines",
+                    "message": f"File has too many lines: {lines_count}. Maximum allowed: {MAX_LINES}"
+                })
+                continue
+            
+            # Detect language
+            detected_language = detect_language_from_filename(file.filename)
+            content_type = file.content_type or "text/plain"
+            
+            # Add successful upload to results
+            results.append(FileUploadResponse(
+                upload_id=upload_id,
+                filename=file.filename,
+                content=file_content,
+                language=detected_language,
+                size_bytes=file_size_bytes,
+                size_kb=round(file_size_kb, 2),
+                lines_count=lines_count,
+                uploaded_at=uploaded_at,
+                content_type=content_type
+            ))
+            
+        except Exception as e:
+            errors.append({
+                "file_index": i,
+                "filename": file.filename if file.filename else f"file_{i}",
+                "error": "processing_error",
+                "message": f"Error processing file: {str(e)}"
+            })
+    
+    # If there are errors, include them in the response
+    if errors:
+        response_data = {
+            "uploaded_files": results,
+            "errors": errors,
+            "total_files": len(files),
+            "successful_uploads": len(results),
+            "failed_uploads": len(errors)
+        }
+        
+        # If all files failed, return 400
+        if len(results) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail=response_data
+            )
+        
+        # If some files succeeded, return 207 (Multi-Status)
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=207,
+            content=response_data
+        )
+    
+    return results
+
+
+@router.post("/code-review")
+async def code_review_files(
+    files: list[UploadFile] = File(..., description="Code files to review"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload multiple files and perform code review analysis.
+    
+    This endpoint combines file upload with immediate code analysis,
+    providing a complete code review workflow for multiple files.
+    
+    Requirements covered: 1.1, 1.2, 4.1, 4.3, 4.4
+    """
+    if not files:
+        raise HTTPException(
+            status_code=400,
+            detail="No files provided for code review"
+        )
+    
+    if len(files) > 10:  # Limit to 10 files per request
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "too_many_files",
+                "message": f"Too many files: {len(files)}. Maximum allowed: 10",
+                "file_count": len(files),
+                "max_files": 10
+            }
+        )
+    
+    # First, upload and validate all files
+    try:
+        uploaded_files = await upload_multiple_files(files, current_user, db)
+        
+        # Handle the case where upload_multiple_files returns a JSONResponse with errors
+        if hasattr(uploaded_files, 'status_code'):
+            # This means there were some errors in upload
+            return uploaded_files
+        
+    except HTTPException as e:
+        # Re-raise upload errors
+        raise e
+    
+    # Now perform code analysis on each successfully uploaded file
+    analysis_results = []
+    
+    for uploaded_file in uploaded_files:
+        try:
+            # Create analysis request for each file
+            from app.api.v1.endpoints.analysis import DirectCodeAnalysisRequest
+            
+            analysis_request = DirectCodeAnalysisRequest(
+                code=uploaded_file.content,
+                language=uploaded_file.language,
+                filename=uploaded_file.filename
+            )
+            
+            # Import and call the analysis function
+            from app.api.v1.endpoints.analysis import analyze_code_direct
+            
+            # Perform analysis
+            analysis_result = await analyze_code_direct(analysis_request, current_user, db)
+            
+            # Add file information to analysis result
+            analysis_result["file_info"] = {
+                "upload_id": uploaded_file.upload_id,
+                "filename": uploaded_file.filename,
+                "language": uploaded_file.language,
+                "size_bytes": uploaded_file.size_bytes,
+                "size_kb": uploaded_file.size_kb,
+                "lines_count": uploaded_file.lines_count,
+                "uploaded_at": uploaded_file.uploaded_at.isoformat()
+            }
+            
+            analysis_results.append(analysis_result)
+            
+        except Exception as e:
+            # If analysis fails for a file, include error information
+            analysis_results.append({
+                "file_info": {
+                    "upload_id": uploaded_file.upload_id,
+                    "filename": uploaded_file.filename,
+                    "language": uploaded_file.language,
+                    "size_bytes": uploaded_file.size_bytes,
+                    "size_kb": uploaded_file.size_kb,
+                    "lines_count": uploaded_file.lines_count,
+                    "uploaded_at": uploaded_file.uploaded_at.isoformat()
+                },
+                "analysis_error": {
+                    "error": "analysis_failed",
+                    "message": f"Code analysis failed: {str(e)}"
+                },
+                "status": "failed"
+            })
+    
+    # Return comprehensive results
+    return {
+        "total_files": len(files),
+        "uploaded_files": len(uploaded_files),
+        "analyzed_files": len([r for r in analysis_results if "analysis_error" not in r]),
+        "failed_analyses": len([r for r in analysis_results if "analysis_error" in r]),
+        "results": analysis_results,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
 @router.get("/supported-extensions")
 def get_supported_extensions():
     """

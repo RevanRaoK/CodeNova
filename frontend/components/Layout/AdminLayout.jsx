@@ -13,6 +13,7 @@ import {
      ChevronDown
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useNavigation } from '../../contexts/NavigationContext';
 
 /**
  * Admin-specific layout component with admin navigation and branding
@@ -20,7 +21,7 @@ import { useAuth } from '../../contexts/AuthContext';
 const AdminLayout = ({ children }) => {
      const navigate = useNavigate();
      const { user, logout } = useAuth();
-     const [sidebarOpen, setSidebarOpen] = useState(false);
+     const { sidebarOpen, setSidebarOpen, closeSidebar, sidebarCollapsed, toggleSidebar } = useNavigation();
      const [userMenuOpen, setUserMenuOpen] = useState(false);
 
      // Get current path to highlight active nav item
@@ -80,23 +81,27 @@ const AdminLayout = ({ children }) => {
                {sidebarOpen && (
                     <div
                          className="fixed inset-0 z-40 bg-gray-600 bg-opacity-75 lg:hidden"
-                         onClick={() => setSidebarOpen(false)}
+                         onClick={closeSidebar}
                     />
                )}
 
                {/* Sidebar */}
                <div className={`
-        fixed inset-y-0 left-0 z-50 w-64 bg-gray-900 text-white transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:relative lg:flex lg:flex-col
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        fixed inset-y-0 left-0 z-50 bg-gray-900 text-white transform transition-all duration-300 ease-in-out lg:translate-x-0 lg:relative lg:flex lg:flex-col
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        ${sidebarCollapsed ? 'lg:w-16' : 'lg:w-64'}
+        w-64
       `}>
                     {/* Sidebar header */}
                     <div className="flex items-center justify-between h-16 px-4 bg-gray-800">
                          <div className="flex items-center space-x-2">
                               <Shield className="h-8 w-8 text-indigo-400" />
-                              <span className="text-xl font-bold">Admin Portal</span>
+                              <span className={`text-xl font-bold transition-opacity duration-300 ${sidebarCollapsed ? 'lg:opacity-0 lg:hidden' : 'opacity-100'}`}>
+                                   Admin Portal
+                              </span>
                          </div>
                          <button
-                              onClick={() => setSidebarOpen(false)}
+                              onClick={closeSidebar}
                               className="text-gray-400 hover:text-white lg:hidden"
                          >
                               <X className="h-6 w-6" />
@@ -112,14 +117,15 @@ const AdminLayout = ({ children }) => {
                                    <Link
                                         key={item.name}
                                         to={item.href}
-                                        className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md transition-colors ${isActive
+                                        className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md transition-all duration-300 ${isActive
                                              ? 'bg-indigo-600 text-white'
                                              : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                                             }`}
-                                        onClick={() => setSidebarOpen(false)}
+                                             } ${sidebarCollapsed ? 'lg:justify-center lg:px-2' : ''}`}
+                                        onClick={closeSidebar}
+                                        title={sidebarCollapsed ? item.name : ''}
                                    >
-                                        <Icon className="mr-3 h-5 w-5 flex-shrink-0" />
-                                        <div>
+                                        <Icon className={`h-5 w-5 flex-shrink-0 ${sidebarCollapsed ? 'lg:mr-0' : 'mr-3'}`} />
+                                        <div className={`transition-opacity duration-300 ${sidebarCollapsed ? 'lg:opacity-0 lg:hidden' : 'opacity-100'}`}>
                                              <div>{item.name}</div>
                                              <div className={`text-xs transition-colors ${isActive
                                                   ? 'text-indigo-200'
@@ -137,10 +143,13 @@ const AdminLayout = ({ children }) => {
                     <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-700">
                          <Link
                               to="/"
-                              className="flex items-center px-2 py-2 text-sm font-medium rounded-md text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+                              className={`flex items-center px-2 py-2 text-sm font-medium rounded-md text-gray-300 hover:bg-gray-700 hover:text-white transition-all duration-300 ${sidebarCollapsed ? 'lg:justify-center lg:px-2' : ''}`}
+                              title={sidebarCollapsed ? 'Back to Main App' : ''}
                          >
-                              <Home className="mr-3 h-5 w-5" />
-                              Back to Main App
+                              <Home className={`h-5 w-5 ${sidebarCollapsed ? 'lg:mr-0' : 'mr-3'}`} />
+                              <span className={`transition-opacity duration-300 ${sidebarCollapsed ? 'lg:opacity-0 lg:hidden' : 'opacity-100'}`}>
+                                   Back to Main App
+                              </span>
                          </Link>
                     </div>
                </div>
@@ -154,8 +163,9 @@ const AdminLayout = ({ children }) => {
                                    {/* Left side */}
                                    <div className="flex items-center">
                                         <button
-                                             onClick={() => setSidebarOpen(true)}
-                                             className="text-gray-500 hover:text-gray-700 lg:hidden"
+                                             onClick={toggleSidebar}
+                                             className="text-gray-500 hover:text-gray-700 mr-4 transition-colors"
+                                             title="Toggle sidebar"
                                         >
                                              <Menu className="h-6 w-6" />
                                         </button>

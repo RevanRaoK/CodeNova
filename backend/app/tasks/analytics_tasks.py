@@ -251,3 +251,50 @@ async def analyze_user_behavior(user_segment: str = "all") -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"User behavior analysis failed: {e}")
         raise
+
+
+# Background task management functions
+_background_tasks = []
+
+async def start_analytics_background_tasks():
+    """
+    Start analytics background tasks.
+    
+    This function initializes and starts background tasks for analytics processing.
+    """
+    logger.info("Starting analytics background tasks...")
+    
+    try:
+        # In a real implementation, you would start actual background tasks here
+        # For now, we'll just log that the system is ready
+        logger.info("Analytics background tasks started successfully")
+        
+    except Exception as e:
+        logger.error(f"Failed to start analytics background tasks: {e}")
+        raise
+
+
+async def stop_analytics_background_tasks():
+    """
+    Stop analytics background tasks.
+    
+    This function gracefully shuts down background tasks for analytics processing.
+    """
+    logger.info("Stopping analytics background tasks...")
+    
+    try:
+        # Cancel any running background tasks
+        for task in _background_tasks:
+            if not task.done():
+                task.cancel()
+        
+        # Wait for tasks to complete
+        if _background_tasks:
+            await asyncio.gather(*_background_tasks, return_exceptions=True)
+        
+        _background_tasks.clear()
+        logger.info("Analytics background tasks stopped successfully")
+        
+    except Exception as e:
+        logger.error(f"Failed to stop analytics background tasks: {e}")
+        raise

@@ -409,8 +409,8 @@ export default function UserSettings() {
           </div>
      );
 }
-/
-     / Profile Tab Component
+
+// Profile Tab Component
 function ProfileTab({
      profileForm,
      setProfileForm,
@@ -621,8 +621,9 @@ function ProfileTab({
                </form>
           </div>
      );
-}//
- Security Tab Component
+}
+
+// Security Tab Component
 function SecurityTab({
      passwordForm,
      setPasswordForm,
@@ -816,8 +817,9 @@ function SecurityTab({
                </form>
           </div>
      );
-}// Not
-ifications Tab Component
+}
+
+// Notifications Tab Component
 function NotificationsTab({
      notificationPrefs,
      setNotificationPrefs,
@@ -1086,8 +1088,9 @@ function NotificationsTab({
                </form>
           </div>
      );
-}// Pre
-ferences Tab Component
+}
+
+// Preferences Tab Component
 function PreferencesTab({
      userPrefs,
      setUserPrefs,

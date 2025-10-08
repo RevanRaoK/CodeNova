@@ -3,20 +3,20 @@ from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
-from fastapi import UploadFile
+from fastapi import UploadFile, HTTPException
 import json
 import os
 import uuid
 
-from app.models.users import User
-from app.schemas.users import UserProfileUpdate, UserPreferences, NotificationPreferences, PasswordChange, UserProfile
-from app.core.security import get_password_hash, verify_password
+from ..models import User
+from ..schemas.user import UserCreate, UserUpdate, UserProfile, UserProfileUpdate, NotificationPreferences, PasswordChange, UserPreferences
+from ..core.security import get_password_hash, verify_password
 
 
 class UserService:
     """Service for managing user operations including profile, preferences, and settings."""
     
-    async def get_user_profile(self, db: Session, user_id: str) -> Optional[UserProfile]:
+    async def get_user_profile(self, db: Session, user_id: int) -> Optional[UserProfile]:
         """Get user profile information."""
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
@@ -24,47 +24,75 @@ class UserService:
         
         # Convert user model to profile schema
         profile = UserProfile(
-            firstName=getattr(user, 'first_name', None),
-            lastName=getattr(user, 'last_name', None),
+            firstName=user.first_name,
+            lastName=user.last_name,
             email=user.email,
-            jobTitle=getattr(user, 'job_title', None),
-            bio=getattr(user, 'bio', None),
-            programmingLanguages=json.loads(getattr(user, 'programming_languages', '[]')) if getattr(user, 'programming_languages', None) else [],
-            profilePictureUrl=getattr(user, 'profile_picture_url', None)
+            jobTitle=user.job_title,
+            bio=user.bio,
+            programmingLanguages=json.loads(user.programming_languages) if user.programming_languages else [],
+            profilePictureUrl=user.profile_picture_url
         )
         return profile
     
-    async def update_user_profile(self, db: Session, user_id: str, profile_data: UserProfileUpdate) -> Optional[UserProfile]:
-        """Update user profile information."""
+    async def update_user_profile(self, db: Session, user_id: int, profile_data: UserProfileUpdate) -> Optional[UserProfile]:
+        """Update user profile information with comprehensive validation."""
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
-            return None
+            raise HTTPException(status_code=404, detail="User not found")
         
-        # Update user fields
-        if profile_data.firstName is not None:
-            user.first_name = profile_data.firstName
-        if profile_data.lastName is not None:
-            user.last_name = profile_data.lastName
-        if profile_data.email is not None:
-            user.email = profile_data.email
-        if profile_data.jobTitle is not None:
-            user.job_title = profile_data.jobTitle
-        if profile_data.bio is not None:
-            user.bio = profile_data.bio
-        if profile_data.programmingLanguages is not None:
-            user.programming_languages = json.dumps(profile_data.programmingLanguages)
-        
-        user.updated_at = datetime.utcnow()
-        
+        # Validate and update user fields
         try:
+            if profile_data.firstName is not None:
+                if not profile_data.firstName.strip():
+                    raise HTTPException(status_code=400, detail="First name cannot be empty")
+                user.first_name = profile_data.firstName.strip()
+            
+            if profile_data.lastName is not None:
+                if not profile_data.lastName.strip():
+                    raise HTTPException(status_code=400, detail="Last name cannot be empty")
+                user.last_name = profile_data.lastName.strip()
+            
+            if profile_data.email is not None:
+                # Check if email is already taken by another user
+                existing_user = db.query(User).filter(
+                    User.email == profile_data.email,
+                    User.id != user_id
+                ).first()
+                if existing_user:
+                    raise HTTPException(status_code=400, detail="Email already registered")
+                user.email = profile_data.email
+            
+            if profile_data.jobTitle is not None:
+                user.job_title = profile_data.jobTitle.strip() if profile_data.jobTitle else None
+            
+            if profile_data.bio is not None:
+                user.bio = profile_data.bio.strip() if profile_data.bio else None
+            
+            if profile_data.programmingLanguages is not None:
+                # Validate and clean programming languages
+                clean_languages = [lang.strip() for lang in profile_data.programmingLanguages if lang.strip()]
+                user.programming_languages = json.dumps(clean_languages)
+            
+            user.updated_at = datetime.utcnow()
+            
             db.commit()
             db.refresh(user)
             return await self.get_user_profile(db, user_id)
-        except IntegrityError:
+            
+        except HTTPException:
             db.rollback()
             raise
+        except IntegrityError as e:
+            db.rollback()
+            if "email" in str(e).lower():
+                raise HTTPException(status_code=400, detail="Email already registered")
+            raise HTTPException(status_code=500, detail="Failed to update profile")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Unexpected error updating profile: {e}")
+            raise HTTPException(status_code=500, detail="Failed to update profile")
     
-    async def get_user_preferences(self, db: Session, user_id: str) -> Dict[str, Any]:
+    async def get_user_preferences(self, db: Session, user_id: int) -> Dict[str, Any]:
         """Get user preferences."""
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
@@ -106,30 +134,38 @@ class UserService:
             })
         }
     
-    async def update_user_preferences(self, db: Session, user_id: str, preferences: UserPreferences) -> Dict[str, Any]:
-        """Update user preferences."""
+    async def update_user_preferences(self, db: Session, user_id: int, preferences: UserPreferences) -> Dict[str, Any]:
+        """Update user preferences with validation."""
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
-            return {}
-        
-        # Get current preferences
-        current_prefs = await self.get_user_preferences(db, user_id)
-        
-        # Update user preferences
-        current_prefs["userPreferences"] = preferences.dict()
-        
-        # Save to database
-        user.preferences = json.dumps(current_prefs)
-        user.updated_at = datetime.utcnow()
+            raise HTTPException(status_code=404, detail="User not found")
         
         try:
+            # Get current preferences
+            current_prefs = await self.get_user_preferences(db, user_id)
+            
+            # Validate preferences (Pydantic validation already done, but add extra checks)
+            preferences_dict = preferences.dict()
+            
+            # Update user preferences
+            current_prefs["userPreferences"] = preferences_dict
+            
+            # Save to database
+            user.preferences = json.dumps(current_prefs)
+            user.updated_at = datetime.utcnow()
+            
             db.commit()
             return current_prefs
-        except IntegrityError:
+            
+        except HTTPException:
             db.rollback()
             raise
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Failed to update user preferences: {e}")
+            raise HTTPException(status_code=500, detail="Failed to update preferences")
     
-    async def update_notification_preferences(self, db: Session, user_id: str, notifications: NotificationPreferences) -> Dict[str, Any]:
+    async def update_notification_preferences(self, db: Session, user_id: int, notifications: NotificationPreferences) -> Dict[str, Any]:
         """Update notification preferences."""
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
@@ -152,7 +188,107 @@ class UserService:
             db.rollback()
             raise
     
-    async def change_password(self, db: Session, user_id: str, password_data: PasswordChange) -> bool:
+    async def get_user_by_email(self, db: Session, email: str) -> Optional[User]:
+        """Get user by email address."""
+        return db.query(User).filter(User.email == email).first()
+    
+    async def get_theme_preference(self, db: Session, user_id: int) -> str:
+        """Get user theme preference."""
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return "light"  # Default theme
+        
+        preferences = await self.get_user_preferences(db, user_id)
+        return preferences.get("userPreferences", {}).get("theme", "light")
+    
+    async def update_theme_preference(self, db: Session, user_id: int, theme: str) -> Dict[str, Any]:
+        """Update user theme preference."""
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Validate theme
+        allowed_themes = ['light', 'dark', 'auto']
+        if theme not in allowed_themes:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid theme. Must be one of: {', '.join(allowed_themes)}"
+            )
+        
+        # Get current preferences
+        current_prefs = await self.get_user_preferences(db, user_id)
+        
+        # Update theme preference
+        current_prefs["userPreferences"]["theme"] = theme
+        
+        # Save to database
+        user.preferences = json.dumps(current_prefs)
+        user.updated_at = datetime.utcnow()
+        
+        try:
+            db.commit()
+            return current_prefs
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=500, detail="Failed to update theme preference")
+    
+    async def get_user_settings(self, db: Session, user_id: int) -> Dict[str, Any]:
+        """Get comprehensive user settings."""
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        preferences = await self.get_user_preferences(db, user_id)
+        profile = await self.get_user_profile(db, user_id)
+        
+        return {
+            "profile": profile.dict() if profile else {},
+            "preferences": preferences.get("userPreferences", {}),
+            "notifications": preferences.get("notifications", {}),
+            "theme": preferences.get("userPreferences", {}).get("theme", "light"),
+            "lastUpdated": user.updated_at.isoformat() if user.updated_at else None
+        }
+    
+    async def update_user_settings(self, db: Session, user_id: int, settings: Dict[str, Any]) -> Dict[str, Any]:
+        """Update comprehensive user settings."""
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Get current preferences
+        current_prefs = await self.get_user_preferences(db, user_id)
+        
+        # Update preferences if provided
+        if "preferences" in settings:
+            current_prefs["userPreferences"].update(settings["preferences"])
+        
+        # Update notifications if provided
+        if "notifications" in settings:
+            current_prefs["notifications"].update(settings["notifications"])
+        
+        # Update theme if provided
+        if "theme" in settings:
+            theme = settings["theme"]
+            allowed_themes = ['light', 'dark', 'auto']
+            if theme not in allowed_themes:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Invalid theme. Must be one of: {', '.join(allowed_themes)}"
+                )
+            current_prefs["userPreferences"]["theme"] = theme
+        
+        # Save to database
+        user.preferences = json.dumps(current_prefs)
+        user.updated_at = datetime.utcnow()
+        
+        try:
+            db.commit()
+            return await self.get_user_settings(db, user_id)
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=500, detail="Failed to update user settings")
+    
+    async def change_password(self, db: Session, user_id: int, password_data: PasswordChange) -> bool:
         """Change user password."""
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
@@ -173,7 +309,7 @@ class UserService:
             db.rollback()
             return False
     
-    async def upload_profile_picture(self, db: Session, user_id: str, file: UploadFile) -> str:
+    async def upload_profile_picture(self, db: Session, user_id: int, file: UploadFile) -> str:
         """Upload profile picture and return URL."""
         user = db.query(User).filter(User.id == user_id).first()
         if not user:

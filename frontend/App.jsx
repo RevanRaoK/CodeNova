@@ -1,12 +1,19 @@
 import React, { useEffect, useState } from 'react'
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { Layout } from './components/Layout/Layout'
+import { MarketingLayout } from './components/Layout/MarketingLayout'
 import { AuthProvider } from './contexts/AuthContext'
 import { NotificationProvider } from './contexts/NotificationContext'
+import { NavigationProvider } from './contexts/NavigationContext'
 import GoogleOAuthProvider from './components/providers/GoogleOAuthProvider'
 import NotificationManager from './components/NotificationManager'
 import ProtectedRoute from './components/ProtectedRoute'
+import WorkflowOrchestrator from './components/WorkflowOrchestrator'
+import { ErrorBoundary } from './utils/errorHandler'
 import { Home } from './pages/Home'
+import { Dashboard } from './components/Dashboard'
+import { Homepage } from './components/Homepage'
+import { HomeRoute } from './components/HomeRoute'
 import { CodeReview } from './pages/CodeReview'
 import { PatternLibrary } from './pages/PatternLibrary'
 import { FeedbackDashboard } from './pages/FeedbackDashboard'
@@ -161,62 +168,80 @@ export function App() {
   };
 
   return (
-    <GoogleOAuthProvider>
-      <NotificationProvider>
-        <AuthProvider>
-          <div className="min-h-screen bg-gray-50">
-            {/* Service Worker Update Banner */}
-            {showUpdateBanner && (
-              <ServiceWorkerUpdateBanner
-                onUpdate={handleServiceWorkerUpdate}
-                onDismiss={handleDismissUpdateBanner}
-              />
-            )}
+    <ErrorBoundary name="App">
+      <GoogleOAuthProvider>
+        <NotificationProvider>
+          <AuthProvider>
+            <WorkflowOrchestrator>
+              <div className="min-h-screen bg-gray-50">
+                {/* Service Worker Update Banner */}
+                {showUpdateBanner && (
+                  <ServiceWorkerUpdateBanner
+                    onUpdate={handleServiceWorkerUpdate}
+                    onDismiss={handleDismissUpdateBanner}
+                  />
+                )}
 
-            {/* Main App Content */}
-            <div className={showUpdateBanner ? 'pt-16' : ''}>
-              <Router>
-                <Routes>
-                  {/* Public auth routes */}
-                  <Route path="/login" element={<Login />} />
-                  <Route path="/signup" element={<Signup />} />
+                {/* Main App Content */}
+                <div className={showUpdateBanner ? 'pt-16' : ''}>
+                  <Router>
+                    <NavigationProvider>
+                      <Routes>
+                        {/* Smart homepage route - shows Homepage for non-authenticated users, redirects to dashboard for authenticated users */}
+                        <Route path="/" element={<HomeRoute />} />
 
-                  {/* Admin routes */}
-                  <Route path="/admin/*" element={<AdminRouter />} />
+                        {/* Public auth routes with marketing layout */}
+                        <Route path="/login" element={
+                          <MarketingLayout>
+                            <Login />
+                          </MarketingLayout>
+                        } />
+                        <Route path="/signup" element={
+                          <MarketingLayout>
+                            <Signup />
+                          </MarketingLayout>
+                        } />
 
-                  {/* GitHub OAuth callback route */}
-                  <Route path="/github/callback" element={<GitHubOAuthCallback />} />
+                        {/* Admin routes */}
+                        <Route path="/admin/*" element={<AdminRouter />} />
 
-                  {/* Protected app routes with main Layout */}
-                  <Route element={
-                    <ProtectedRoute>
-                      <Layout />
-                    </ProtectedRoute>
-                  }>
-                    <Route path="/" element={<Home />} />
-                    <Route path="/code-review" element={<CodeReview />} />
-                    <Route path="/pattern-library" element={<PatternLibrary />} />
-                    <Route path="/feedback-dashboard" element={<FeedbackDashboard />} />
-                    <Route path="/admin-test" element={<AdminTest />} />
-                    <Route path="/github" element={<GitHubIntegration />} />
-                    <Route path="/settings" element={<Settings />} />
-                    <Route path="/profile" element={<Profile />} />
-                    <Route path="/monaco-test" element={<MonacoEditorTest />} />
-                    <Route path="/monaco-demo" element={<MonacoEditorDemo />} />
-                    <Route path="/api-test" element={<ApiTest />} />
-                    <Route path="/notification-demo" element={<NotificationDemo />} />
-                  </Route>
-                </Routes>
-                <NotificationManager />
-              </Router>
-            </div>
+                        {/* GitHub OAuth callback route */}
+                        <Route path="/github/callback" element={<GitHubOAuthCallback />} />
 
-            {/* Offline Status Banner */}
-            <OfflineStatusBanner isOffline={isOffline} />
-          </div>
-        </AuthProvider>
-      </NotificationProvider>
-    </GoogleOAuthProvider>
+                        {/* Protected app routes with main Layout */}
+                        <Route element={
+                          <ProtectedRoute>
+                            <Layout />
+                          </ProtectedRoute>
+                        }>
+                          <Route path="/dashboard" element={<Dashboard />} />
+                          <Route path="/code-review" element={<CodeReview />} />
+                          <Route path="/pattern-library" element={<PatternLibrary />} />
+                          <Route path="/feedback-dashboard" element={<FeedbackDashboard />} />
+                          <Route path="/admin-test" element={<AdminTest />} />
+                          <Route path="/github" element={<GitHubIntegration />} />
+                          <Route path="/settings" element={<Settings />} />
+                          <Route path="/profile" element={<Profile />} />
+                          <Route path="/monaco-test" element={<MonacoEditorTest />} />
+                          <Route path="/monaco-demo" element={<MonacoEditorDemo />} />
+                          <Route path="/api-test" element={<ApiTest />} />
+                          <Route path="/notification-demo" element={<NotificationDemo />} />
+                        </Route>
+                      </Routes>
+                      <NotificationManager />
+                    </NavigationProvider>
+                  </Router>
+                </div>
+
+                {/* Offline Status Banner */}
+                <OfflineStatusBanner isOffline={isOffline} />
+              </div>
+            </WorkflowOrchestrator>
+          </AuthProvider>
+        </NotificationProvider>
+      </GoogleOAuthProvider>
+    </ErrorBoundary>
   )
 }
+
 export default App

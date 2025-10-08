@@ -1,10 +1,12 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { MenuIcon, BellIcon, UserIcon, LogOutIcon } from 'lucide-react';
+import { MenuIcon, XIcon, BellIcon, UserIcon, LogOutIcon } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useNavigation } from '../../contexts/NavigationContext';
 
-export function Header({ toggleSidebar }) {
+export function Header({ toggleSidebar, showSidebarToggle = true }) {
   const { isAuthenticated, user, logout } = useAuth();
+  const { sidebarOpen } = useNavigation();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -21,17 +23,27 @@ export function Header({ toggleSidebar }) {
       <div className="px-4 sm:px-6 lg:px-8 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center">
-            <button
-              onClick={toggleSidebar}
-              className="text-gray-500 focus:outline-none focus:text-gray-700 md:hidden"
-            >
-              <MenuIcon className="h-6 w-6" />
-            </button>
-            <div className="hidden md:flex items-center">
-              <Link to="/" className="flex items-center">
-                <span className="text-xl font-bold text-indigo-600">
-                  CodeNova
-                </span>
+            {showSidebarToggle && (
+              <button
+                onClick={toggleSidebar}
+                className="text-gray-500 hover:text-gray-700 focus:outline-none focus:text-gray-700 mr-4 transition-colors"
+                title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+              >
+                {sidebarOpen ? (
+                  <XIcon className="h-6 w-6" />
+                ) : (
+                  <MenuIcon className="h-6 w-6" />
+                )}
+              </button>
+            )}
+            <div className="flex items-center">
+              <Link to="/dashboard" className="flex items-center">
+                <img
+                  src="https://codenova-uploads.blr1.cdn.digitaloceanspaces.com/icons/1759674511937.png"
+                  alt="CodeNova Logo"
+                  className="h-12 w-auto"
+                  style={{ aspectRatio: '3160/1166' }}
+                />
               </Link>
             </div>
           </div>
