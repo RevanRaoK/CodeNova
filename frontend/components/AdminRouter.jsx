@@ -15,40 +15,43 @@ import PlatformStatsPanel from './admin/PlatformStatsPanel';
  * Admin router component that handles admin-specific routing and authentication
  */
 const AdminRouter = () => {
-     const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated } = useAuth();
 
-     // Check if user has admin privileges
-     const isAdmin = user && (user.role === 'admin' || user.role === 'team_lead');
+  // Check if user has admin privileges
+  const isAdmin = user && (user.role === 'admin' || user.role === 'team_lead');
 
-     return (
-          <Routes>
-               {/* Admin login route - accessible to all */}
-               <Route path="/login" element={<AdminLogin />} />
+  return (
+    <Routes>
+      {/* Admin login route - accessible to all */}
+      <Route path="/login" element={<AdminLogin />} />
 
-               {/* Protected admin routes */}
-               <Route path="/*" element={
-                    !isAuthenticated ? (
-                         <Navigate to="/admin/login" replace />
-                    ) : isAdmin ? (
-                         <AdminLayout>
-                              <Routes>
-                                   <Route path="/" element={<DashboardOverview />} />
-                                   <Route path="/dashboard" element={<DashboardOverview />} />
-                                   <Route path="/users" element={<UserManagementPanel />} />
-                                   <Route path="/teams" element={<TeamManagementPanel />} />
-                                   <Route path="/analytics" element={<TeamAnalyticsPanel />} />
-                                   <Route path="/audit" element={<AuditLogPanel />} />
-                                   <Route path="/stats" element={<PlatformStatsPanel />} />
-                                   {/* Redirect any unknown admin routes to dashboard */}
-                                   <Route path="*" element={<Navigate to="/admin" replace />} />
-                              </Routes>
-                         </AdminLayout>
-                    ) : (
-                         <AdminAccessDenied />
-                    )
-               } />
-          </Routes>
-     );
+      {/* Protected admin routes */}
+      <Route
+        path="/*"
+        element={
+          !isAuthenticated ? (
+            <Navigate to="/admin/login" replace />
+          ) : isAdmin ? (
+            <AdminLayout>
+              <Routes>
+                <Route path="/" element={<DashboardOverview />} />
+                <Route path="/dashboard" element={<DashboardOverview />} />
+                <Route path="/users" element={<UserManagementPanel />} />
+                <Route path="/teams" element={<TeamManagementPanel />} />
+                <Route path="/analytics" element={<TeamAnalyticsPanel />} />
+                <Route path="/audit" element={<AuditLogPanel />} />
+                <Route path="/stats" element={<PlatformStatsPanel />} />
+                {/* Redirect any unknown admin routes to dashboard */}
+                <Route path="*" element={<Navigate to="/admin" replace />} />
+              </Routes>
+            </AdminLayout>
+          ) : (
+            <AdminAccessDenied />
+          )
+        }
+      />
+    </Routes>
+  );
 };
 
 export default AdminRouter;

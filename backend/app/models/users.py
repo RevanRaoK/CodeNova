@@ -52,6 +52,7 @@ class User(Base):
     tokens = relationship("Token", back_populates="user")
     direct_analyses = relationship("DirectAnalysis", back_populates="user")
     feedback_records = relationship("FeedbackRecord", back_populates="user")
+    github_oauth_integrations = relationship("GitHubOAuthIntegration", back_populates="user")
 
 
 class Token(Base):

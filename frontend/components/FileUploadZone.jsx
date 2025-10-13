@@ -1,134 +1,139 @@
-import React, { useState, useRef, useCallback } from 'react'
-import { 
-  UploadIcon, 
-  FileTextIcon, 
-  XIcon, 
-  CheckCircleIcon, 
+import React, { useState, useRef, useCallback } from 'react';
+import {
+  UploadIcon,
+  FileTextIcon,
+  XIcon,
+  CheckCircleIcon,
   AlertCircleIcon,
-  LoaderIcon 
-} from 'lucide-react'
-import { 
-  validateFile, 
-  processUploadedFile, 
-  formatFileSize, 
+  LoaderIcon,
+} from 'lucide-react';
+import {
+  validateFile,
+  processUploadedFile,
+  formatFileSize,
   isDragAndDropSupported,
-  SUPPORTED_LANGUAGES 
-} from '../utils/fileUtils'
+  SUPPORTED_LANGUAGES,
+} from '../utils/fileUtils';
 
-export function FileUploadZone({ 
-  onFileUpload, 
-  isUploading = false, 
-  uploadProgress = 0, 
+export function FileUploadZone({
+  onFileUpload,
+  isUploading = false,
+  uploadProgress = 0,
   error = null,
   accept = null,
   maxSize = 1024 * 1024, // 1MB default
-  className = ''
+  className = '',
 }) {
-  const [isDragOver, setIsDragOver] = useState(false)
-  const [selectedFile, setSelectedFile] = useState(null)
-  const [validationError, setValidationError] = useState('')
-  const fileInputRef = useRef(null)
-  const dragCounter = useRef(0)
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [validationError, setValidationError] = useState('');
+  const fileInputRef = useRef(null);
+  const dragCounter = useRef(0);
 
   // Check if drag and drop is supported
-  const dragDropSupported = isDragAndDropSupported()
+  const dragDropSupported = isDragAndDropSupported();
 
   // Handle file selection from input
   const handleFileSelect = useCallback(async (event) => {
-    const files = event.target.files
+    const files = event.target.files;
     if (files && files.length > 0) {
-      await handleFiles(files)
+      await handleFiles(files);
     }
-  }, [])
+  }, []);
 
   // Handle files from drag and drop or file input
-  const handleFiles = useCallback(async (files) => {
-    const file = files[0] // Only handle single file for now
-    
-    if (!file) return
+  const handleFiles = useCallback(
+    async (files) => {
+      const file = files[0]; // Only handle single file for now
 
-    setValidationError('')
-    setSelectedFile(file)
+      if (!file) return;
 
-    try {
-      // Validate file using utility function
-      const validation = validateFile(file)
-      if (!validation.isValid) {
-        setValidationError(validation.error)
-        return
+      setValidationError('');
+      setSelectedFile(file);
+
+      try {
+        // Validate file using utility function
+        const validation = validateFile(file);
+        if (!validation.isValid) {
+          setValidationError(validation.error);
+          return;
+        }
+
+        // Process the file and call the upload handler
+        if (onFileUpload) {
+          await onFileUpload(file);
+        }
+      } catch (error) {
+        console.error('File processing error:', error);
+        setValidationError(error.message || 'Failed to process file');
       }
-
-      // Process the file and call the upload handler
-      if (onFileUpload) {
-        await onFileUpload(file)
-      }
-    } catch (error) {
-      console.error('File processing error:', error)
-      setValidationError(error.message || 'Failed to process file')
-    }
-  }, [onFileUpload])
+    },
+    [onFileUpload]
+  );
 
   // Drag and drop handlers
   const handleDragEnter = useCallback((e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    dragCounter.current++
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current++;
     if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
-      setIsDragOver(true)
+      setIsDragOver(true);
     }
-  }, [])
+  }, []);
 
   const handleDragLeave = useCallback((e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    dragCounter.current--
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current--;
     if (dragCounter.current === 0) {
-      setIsDragOver(false)
+      setIsDragOver(false);
     }
-  }, [])
+  }, []);
 
   const handleDragOver = useCallback((e) => {
-    e.preventDefault()
-    e.stopPropagation()
-  }, [])
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
 
-  const handleDrop = useCallback(async (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsDragOver(false)
-    dragCounter.current = 0
+  const handleDrop = useCallback(
+    async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+      dragCounter.current = 0;
 
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      await handleFiles(e.dataTransfer.files)
-      e.dataTransfer.clearData()
-    }
-  }, [handleFiles])
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        await handleFiles(e.dataTransfer.files);
+        e.dataTransfer.clearData();
+      }
+    },
+    [handleFiles]
+  );
 
   // Clear selected file
   const clearFile = useCallback(() => {
-    setSelectedFile(null)
-    setValidationError('')
+    setSelectedFile(null);
+    setValidationError('');
     if (fileInputRef.current) {
-      fileInputRef.current.value = ''
+      fileInputRef.current.value = '';
     }
-  }, [])
+  }, []);
 
   // Open file dialog
   const openFileDialog = useCallback(() => {
     if (fileInputRef.current) {
-      fileInputRef.current.click()
+      fileInputRef.current.click();
     }
-  }, [])
+  }, []);
 
   // Get supported file extensions for display
   const getSupportedExtensions = () => {
-    return SUPPORTED_LANGUAGES
-      .flatMap(lang => lang.extensions)
+    return SUPPORTED_LANGUAGES.flatMap((lang) => lang.extensions)
       .slice(0, 10) // Show first 10 extensions
-      .join(', ')
-  }
+      .join(', ');
+  };
 
-  const displayError = error || validationError
+  const displayError = error || validationError;
 
   return (
     <div className={`w-full ${className}`}>
@@ -136,9 +141,10 @@ export function FileUploadZone({
       <div
         className={`
           relative border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200
-          ${isDragOver 
-            ? 'border-indigo-400 bg-indigo-50' 
-            : 'border-gray-300 hover:border-gray-400'
+          ${
+            isDragOver
+              ? 'border-primary-400 bg-primary-50'
+              : 'border-gray-300 hover:border-gray-400'
           }
           ${isUploading ? 'pointer-events-none opacity-75' : 'cursor-pointer'}
           ${displayError ? 'border-red-300 bg-red-50' : ''}
@@ -155,25 +161,36 @@ export function FileUploadZone({
           type="file"
           className="hidden"
           onChange={handleFileSelect}
-          accept={accept || SUPPORTED_LANGUAGES.flatMap(lang => lang.extensions).join(',')}
+          accept={
+            accept ||
+            SUPPORTED_LANGUAGES.flatMap((lang) => lang.extensions).join(',')
+          }
           disabled={isUploading}
         />
 
         {/* Upload Icon and Content */}
         <div className="space-y-4">
           {isUploading ? (
-            <LoaderIcon className="mx-auto h-12 w-12 text-indigo-500 animate-spin" />
+            <LoaderIcon className="mx-auto h-12 w-12 text-primary-500 animate-spin" />
           ) : displayError ? (
             <AlertCircleIcon className="mx-auto h-12 w-12 text-red-500" />
           ) : (
-            <UploadIcon className={`mx-auto h-12 w-12 ${isDragOver ? 'text-indigo-500' : 'text-gray-400'}`} />
+            <UploadIcon
+              className={`mx-auto h-12 w-12 ${
+                isDragOver ? 'text-primary-500' : 'text-gray-400'
+              }`}
+            />
           )}
 
           <div>
             {isUploading ? (
               <div>
-                <p className="text-lg font-medium text-gray-900">Uploading file...</p>
-                <p className="text-sm text-gray-500">Please wait while we process your file</p>
+                <p className="text-lg font-medium text-gray-900">
+                  Uploading file...
+                </p>
+                <p className="text-sm text-gray-500">
+                  Please wait while we process your file
+                </p>
               </div>
             ) : displayError ? (
               <div>
@@ -183,7 +200,9 @@ export function FileUploadZone({
             ) : (
               <div>
                 <p className="text-lg font-medium text-gray-900">
-                  {dragDropSupported ? 'Drop your code file here, or click to browse' : 'Click to select a code file'}
+                  {dragDropSupported
+                    ? 'Drop your code file here, or click to browse'
+                    : 'Click to select a code file'}
                 </p>
                 <p className="text-sm text-gray-500 mt-1">
                   Supports: {getSupportedExtensions()}...
@@ -199,12 +218,14 @@ export function FileUploadZone({
           {isUploading && uploadProgress > 0 && (
             <div className="w-full max-w-xs mx-auto">
               <div className="bg-gray-200 rounded-full h-2">
-                <div 
+                <div
                   className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
                   style={{ width: `${uploadProgress}%` }}
                 />
               </div>
-              <p className="text-xs text-gray-500 mt-1">{uploadProgress}% complete</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {uploadProgress}% complete
+              </p>
             </div>
           )}
         </div>
@@ -217,9 +238,12 @@ export function FileUploadZone({
             <div className="flex items-center space-x-3">
               <FileTextIcon className="h-8 w-8 text-gray-400" />
               <div>
-                <p className="text-sm font-medium text-gray-900">{selectedFile.name}</p>
+                <p className="text-sm font-medium text-gray-900">
+                  {selectedFile.name}
+                </p>
                 <p className="text-xs text-gray-500">
-                  {formatFileSize(selectedFile.size)} • {selectedFile.type || 'Unknown type'}
+                  {formatFileSize(selectedFile.size)} •{' '}
+                  {selectedFile.type || 'Unknown type'}
                 </p>
               </div>
             </div>
@@ -240,7 +264,8 @@ export function FileUploadZone({
           <div className="flex items-center">
             <CheckCircleIcon className="h-5 w-5 text-green-500 mr-2" />
             <p className="text-sm text-green-800">
-              File uploaded successfully! The content has been loaded into the editor.
+              File uploaded successfully! The content has been loaded into the
+              editor.
             </p>
           </div>
         </div>
@@ -256,12 +281,14 @@ export function FileUploadZone({
             {SUPPORTED_LANGUAGES.map((lang) => (
               <div key={lang.id} className="flex items-center space-x-1">
                 <span className="font-medium">{lang.name}:</span>
-                <span className="text-gray-400">{lang.extensions.join(', ')}</span>
+                <span className="text-gray-400">
+                  {lang.extensions.join(', ')}
+                </span>
               </div>
             ))}
           </div>
         </details>
       </div>
     </div>
-  )
+  );
 }

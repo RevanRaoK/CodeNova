@@ -15,6 +15,14 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
+# Import settings to get .env values
+try:
+    from app.core.config import settings as app_settings
+    _has_settings = True
+except ImportError:
+    _has_settings = False
+    app_settings = None
+
 
 class QueuePriority(Enum):
     """Queue priority levels."""
@@ -29,12 +37,12 @@ class RedisQueueConfig:
     """Configuration class for Redis queue system settings."""
     
     # Redis Configuration
-    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    REDIS_URL: str = app_settings.REDIS_URL if _has_settings and app_settings else os.getenv("REDIS_URL", "redis://localhost:6379/0")
     REDIS_DB_QUEUE: int = int(os.getenv("REDIS_DB_QUEUE", "1"))  # Separate DB for queues
     REDIS_DB_RESULTS: int = int(os.getenv("REDIS_DB_RESULTS", "2"))  # Separate DB for results
     
     # RabbitMQ Configuration (for hybrid mode)
-    RABBITMQ_URL: str = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+    RABBITMQ_URL: str = app_settings.RABBITMQ_URL if _has_settings and app_settings else os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
     
     # Queue Configuration
     QUEUE_PREFIX: str = "codenova:queue:"

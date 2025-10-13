@@ -13,15 +13,23 @@ import {
      AlertCircleIcon,
      UploadIcon
 } from 'lucide-react';
-import authService from '../services/authService.js';
+import { useAuth } from '../contexts/AuthContext';
+import { useUserProfile } from '../hooks/useUserProfile';
 import userService from '../services/userService.js';
 import Toast from './Toast.jsx';
 
 export default function UserSettings() {
+     const { user } = useAuth();
+     const {
+          updateProfile,
+          updatePreferences,
+          updateNotificationPreferences,
+          uploadProfilePicture,
+          isSaving,
+          isLoading
+     } = useUserProfile();
+
      const [activeTab, setActiveTab] = useState('profile');
-     const [user, setUser] = useState(null);
-     const [loading, setLoading] = useState(true);
-     const [saving, setSaving] = useState(false);
      const [toast, setToast] = useState(null);
 
      // Profile form state
@@ -92,53 +100,35 @@ export default function UserSettings() {
           passwordsMatch: false
      });
 
+     // Initialize form data from user
      useEffect(() => {
-          loadUserData();
-     }, []);
+          if (user) {
+               setProfileForm({
+                    firstName: user.firstName || user.first_name || '',
+                    lastName: user.lastName || user.last_name || '',
+                    email: user.email || '',
+                    jobTitle: user.jobTitle || user.job_title || '',
+                    bio: user.bio || '',
+                    programmingLanguages: user.programmingLanguages || user.programming_languages || []
+               });
+
+               if (user.preferences) {
+                    setUserPrefs(prev => ({ ...prev, ...user.preferences }));
+               }
+
+               if (user.notificationPreferences) {
+                    setNotificationPrefs(prev => ({ ...prev, ...user.notificationPreferences }));
+               }
+
+               if (user.profilePictureUrl || user.profile_picture_url) {
+                    setProfilePicturePreview(user.profilePictureUrl || user.profile_picture_url);
+               }
+          }
+     }, [user]);
 
      useEffect(() => {
           validatePassword();
      }, [passwordForm.newPassword, passwordForm.confirmPassword]);
-
-     const loadUserData = async () => {
-          try {
-               setLoading(true);
-               const currentUser = authService.getCurrentUser();
-               if (currentUser) {
-                    setUser(currentUser);
-
-                    // Load user profile and preferences
-                    const [profileData, preferencesData] = await Promise.all([
-                         userService.getUserProfile(currentUser.id),
-                         userService.getUserPreferences(currentUser.id)
-                    ]);
-
-                    // Set profile form data
-                    setProfileForm({
-                         firstName: profileData.firstName || '',
-                         lastName: profileData.lastName || '',
-                         email: profileData.email || currentUser.email,
-                         jobTitle: profileData.jobTitle || '',
-                         bio: profileData.bio || '',
-                         programmingLanguages: profileData.programmingLanguages || []
-                    });
-
-                    // Set preferences
-                    setNotificationPrefs(preferencesData.notifications || notificationPrefs);
-                    setUserPrefs(preferencesData.userPreferences || userPrefs);
-
-                    // Set profile picture
-                    if (profileData.profilePictureUrl) {
-                         setProfilePicturePreview(profileData.profilePictureUrl);
-                    }
-               }
-          } catch (error) {
-               console.error('Error loading user data:', error);
-               showToast('Failed to load user data', 'error');
-          } finally {
-               setLoading(false);
-          }
-     };
 
      const validatePassword = () => {
           const password = passwordForm.newPassword;
@@ -164,22 +154,14 @@ export default function UserSettings() {
 
      const handleProfileSubmit = async (e) => {
           e.preventDefault();
-          try {
-               setSaving(true);
-               await userService.updateUserProfile(user.id, profileForm);
-               showToast('Profile updated successfully');
-
-               // Update local user data
-               const updatedUser = { ...user, ...profileForm };
-               setUser(updatedUser);
-               authService.setUserData(updatedUser);
-          } catch (error) {
-               console.error('Error updating profile:', error);
-               showToast('Failed to update profile', 'error');
-          } finally {
-               setSaving(false);
+          const success = await updateProfile(profileForm);
+          if (!success) {
+               // Error handling is done in the hook
+               return;
           }
      };
+
+     const [changingPassword, setChangingPassword] = useState(false);
 
      const handlePasswordSubmit = async (e) => {
           e.preventDefault();
@@ -190,7 +172,7 @@ export default function UserSettings() {
           }
 
           try {
-               setSaving(true);
+               setChangingPassword(true);
                await userService.changePassword(user.id, {
                     currentPassword: passwordForm.currentPassword,
                     newPassword: passwordForm.newPassword
@@ -206,35 +188,25 @@ export default function UserSettings() {
                console.error('Error changing password:', error);
                showToast('Failed to change password', 'error');
           } finally {
-               setSaving(false);
+               setChangingPassword(false);
           }
      };
 
      const handleNotificationSubmit = async (e) => {
           e.preventDefault();
-          try {
-               setSaving(true);
-               await userService.updateNotificationPreferences(user.id, notificationPrefs);
-               showToast('Notification preferences updated successfully');
-          } catch (error) {
-               console.error('Error updating notification preferences:', error);
-               showToast('Failed to update notification preferences', 'error');
-          } finally {
-               setSaving(false);
+          const success = await updateNotificationPreferences(notificationPrefs);
+          if (!success) {
+               // Error handling is done in the hook
+               return;
           }
      };
 
      const handlePreferencesSubmit = async (e) => {
           e.preventDefault();
-          try {
-               setSaving(true);
-               await userService.updateUserPreferences(user.id, userPrefs);
-               showToast('Preferences updated successfully');
-          } catch (error) {
-               console.error('Error updating preferences:', error);
-               showToast('Failed to update preferences', 'error');
-          } finally {
-               setSaving(false);
+          const success = await updatePreferences(userPrefs);
+          if (!success) {
+               // Error handling is done in the hook
+               return;
           }
      };
 
@@ -268,13 +240,13 @@ export default function UserSettings() {
 
           try {
                setUploadingPicture(true);
-               const uploadedUrl = await userService.uploadProfilePicture(user.id, profilePicture);
-               showToast('Profile picture updated successfully');
-               setProfilePicture(null);
-               setProfilePicturePreview(uploadedUrl);
+               const uploadedUrl = await uploadProfilePicture(profilePicture);
+               if (uploadedUrl) {
+                    setProfilePicture(null);
+                    setProfilePicturePreview(uploadedUrl);
+               }
           } catch (error) {
                console.error('Error uploading profile picture:', error);
-               showToast('Failed to upload profile picture', 'error');
           } finally {
                setUploadingPicture(false);
           }
@@ -287,7 +259,7 @@ export default function UserSettings() {
           }));
      };
 
-     if (loading) {
+     if (isLoading || !user) {
           return (
                <div className="flex items-center justify-center h-64">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
@@ -359,7 +331,7 @@ export default function UserSettings() {
                                         profilePicturePreview={profilePicturePreview}
                                         profilePicture={profilePicture}
                                         uploadingPicture={uploadingPicture}
-                                        saving={saving}
+                                        saving={isSaving}
                                         onSubmit={handleProfileSubmit}
                                         onPictureChange={handleProfilePictureChange}
                                         onPictureUpload={handleProfilePictureUpload}
@@ -372,7 +344,7 @@ export default function UserSettings() {
                                         setPasswordForm={setPasswordForm}
                                         showPasswords={showPasswords}
                                         passwordValidation={passwordValidation}
-                                        saving={saving}
+                                        saving={changingPassword}
                                         onSubmit={handlePasswordSubmit}
                                         onToggleVisibility={togglePasswordVisibility}
                                    />
@@ -382,7 +354,7 @@ export default function UserSettings() {
                                    <NotificationsTab
                                         notificationPrefs={notificationPrefs}
                                         setNotificationPrefs={setNotificationPrefs}
-                                        saving={saving}
+                                        saving={isSaving}
                                         onSubmit={handleNotificationSubmit}
                                    />
                               )}
@@ -391,7 +363,7 @@ export default function UserSettings() {
                                    <PreferencesTab
                                         userPrefs={userPrefs}
                                         setUserPrefs={setUserPrefs}
-                                        saving={saving}
+                                        saving={isSaving}
                                         onSubmit={handlePreferencesSubmit}
                                    />
                               )}

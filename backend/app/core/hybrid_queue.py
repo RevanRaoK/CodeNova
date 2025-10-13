@@ -478,9 +478,12 @@ class HybridQueue:
                 redis_depth += await self.redis_client.llen(redis_queue_name)
                 
                 rabbitmq_queue_name = f"{self.config.rabbitmq_queue_prefix}{priority.value}"
-                queue = await self.rabbitmq_channel.get_queue(rabbitmq_queue_name)
-                queue_info = await queue.declare(passive=True)
-                rabbitmq_depth += queue_info.message_count
+                try:
+                    queue = await self.rabbitmq_channel.get_queue(rabbitmq_queue_name)
+                    rabbitmq_depth += queue.declaration_result.message_count
+                except Exception:
+                    # Queue might not exist yet, skip
+                    pass
             
             self.metrics.redis_queue_depth = redis_depth
             self.metrics.rabbitmq_queue_depth = rabbitmq_depth

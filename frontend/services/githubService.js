@@ -11,10 +11,13 @@ class GitHubService {
   async getRepositories() {
     try {
       const response = await httpClient.get('/github/repositories');
-      return response.data;
+      // Backend returns { repositories: [], total, page, per_page }
+      // Return just the repositories array for backward compatibility
+      return response.data.repositories || [];
     } catch (error) {
       console.error('Failed to fetch repositories:', error);
-      throw this.handleError(error);
+      // Return empty array on error to prevent frontend crash
+      return [];
     }
   }
 
@@ -56,7 +59,9 @@ class GitHubService {
    */
   async getWebhookStatus(repositoryId) {
     try {
-      const response = await httpClient.get(`/github/repositories/${repositoryId}/webhook`);
+      const response = await httpClient.get(
+        `/github/repositories/${repositoryId}/webhook`
+      );
       return response.data;
     } catch (error) {
       console.error('Failed to get webhook status:', error);
@@ -72,10 +77,58 @@ class GitHubService {
    */
   async setupWebhook(repositoryId, webhookConfig = {}) {
     try {
-      const response = await httpClient.post(`/github/repositories/${repositoryId}/webhook`, webhookConfig);
+      const response = await httpClient.post(
+        `/github/repositories/${repositoryId}/webhook`,
+        webhookConfig
+      );
       return response.data;
     } catch (error) {
       console.error('Failed to setup webhook:', error);
+      throw this.handleError(error);
+    }
+  }
+
+  /**
+   * Trigger full repository code analysis
+   * @param {string} repositoryId - Repository ID
+   * @param {Object} options - Analysis options
+   * @param {string} options.branch - Branch to analyze (default: main)
+   * @param {Array<string>} options.filePatterns - File patterns to include
+   * @returns {Promise<Object>} Analysis trigger result
+   */
+  async analyzeRepository(repositoryId, options = {}) {
+    try {
+      const params = {
+        branch: options.branch || 'main',
+      };
+      if (options.filePatterns) {
+        params.file_patterns = options.filePatterns;
+      }
+      const response = await httpClient.post(
+        `/github/repositories/${repositoryId}/analyze`,
+        {},
+        { params }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Failed to trigger repository analysis:', error);
+      throw this.handleError(error);
+    }
+  }
+
+  /**
+   * Get repository analysis progress
+   * @param {string} repositoryId - Repository ID
+   * @returns {Promise<Object>} Analysis progress and status
+   */
+  async getRepositoryAnalysisProgress(repositoryId) {
+    try {
+      const response = await httpClient.get(
+        `/github/repositories/${repositoryId}/analyze/progress`
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch analysis progress:', error);
       throw this.handleError(error);
     }
   }
@@ -91,7 +144,10 @@ class GitHubService {
    */
   async getPRAnalyses(repositoryId, params = {}) {
     try {
-      const response = await httpClient.get(`/github/repositories/${repositoryId}/pr-analyses`, { params });
+      const response = await httpClient.get(
+        `/github/repositories/${repositoryId}/pr-analyses`,
+        { params }
+      );
       return response.data;
     } catch (error) {
       console.error('Failed to fetch PR analyses:', error);
@@ -107,7 +163,9 @@ class GitHubService {
    */
   async getPRAnalysis(repositoryId, analysisId) {
     try {
-      const response = await httpClient.get(`/github/repositories/${repositoryId}/pr-analyses/${analysisId}`);
+      const response = await httpClient.get(
+        `/github/repositories/${repositoryId}/pr-analyses/${analysisId}`
+      );
       return response.data;
     } catch (error) {
       console.error('Failed to fetch PR analysis:', error);
@@ -123,9 +181,12 @@ class GitHubService {
    */
   async triggerPRAnalysis(repositoryId, prNumber) {
     try {
-      const response = await httpClient.post(`/github/repositories/${repositoryId}/pr-analyses`, {
-        pr_number: prNumber
-      });
+      const response = await httpClient.post(
+        `/github/repositories/${repositoryId}/pr-analyses`,
+        {
+          pr_number: prNumber,
+        }
+      );
       return response.data;
     } catch (error) {
       console.error('Failed to trigger PR analysis:', error);
@@ -145,7 +206,10 @@ class GitHubService {
    */
   async getRepositoryIssues(repositoryId, params = {}) {
     try {
-      const response = await httpClient.get(`/github/repositories/${repositoryId}/issues`, { params });
+      const response = await httpClient.get(
+        `/github/repositories/${repositoryId}/issues`,
+        { params }
+      );
       return response.data;
     } catch (error) {
       console.error('Failed to fetch repository issues:', error);
@@ -161,10 +225,7 @@ class GitHubService {
    */
   async getOAuthUrl(redirectUri, scopes = ['repo']) {
     try {
-      const response = await httpClient.post('/github/oauth/authorize', {
-        redirect_uri: redirectUri,
-        scopes
-      });
+      const response = await httpClient.get('/github/oauth/authorize');
       return response.data;
     } catch (error) {
       console.error('Failed to get OAuth URL:', error);
@@ -174,15 +235,13 @@ class GitHubService {
 
   /**
    * Complete GitHub OAuth flow
-   * @param {string} code - OAuth authorization code
-   * @param {string} state - OAuth state parameter
+   * @param {string} resultId - OAuth result ID from callback redirect
    * @returns {Promise<Object>} OAuth completion result
    */
-  async completeOAuth(code, state) {
+  async completeOAuth(resultId) {
     try {
-      const response = await httpClient.post('/github/oauth/callback', {
-        code,
-        state
+      const response = await httpClient.post('/github/oauth/complete', {
+        result_id: resultId,
       });
       return response.data;
     } catch (error) {
@@ -227,7 +286,10 @@ class GitHubService {
    */
   async getRepositoryAnalytics(repositoryId, params = {}) {
     try {
-      const response = await httpClient.get(`/github/repositories/${repositoryId}/analytics`, { params });
+      const response = await httpClient.get(
+        `/github/repositories/${repositoryId}/analytics`,
+        { params }
+      );
       return response.data;
     } catch (error) {
       console.error('Failed to fetch repository analytics:', error);
@@ -243,18 +305,24 @@ class GitHubService {
   handleError(error) {
     if (error.response) {
       const { status, data } = error.response;
-      
+
       switch (status) {
         case 400:
-          return new Error(data.detail || 'Invalid request. Please check your input.');
+          return new Error(
+            data.detail || 'Invalid request. Please check your input.'
+          );
         case 401:
           return new Error('Authentication required. Please log in again.');
         case 403:
-          return new Error('Access denied. You may not have permission to access this repository.');
+          return new Error(
+            'Access denied. You may not have permission to access this repository.'
+          );
         case 404:
           return new Error('Repository not found or not accessible.');
         case 409:
-          return new Error('Repository is already connected or webhook already exists.');
+          return new Error(
+            'Repository is already connected or webhook already exists.'
+          );
         case 422:
           return new Error(data.detail || 'Invalid data provided.');
         case 429:
@@ -262,12 +330,16 @@ class GitHubService {
         case 500:
           return new Error('Server error. Please try again later.');
         case 502:
-          return new Error('GitHub API is temporarily unavailable. Please try again later.');
+          return new Error(
+            'GitHub API is temporarily unavailable. Please try again later.'
+          );
         default:
           return new Error(data.detail || 'An unexpected error occurred.');
       }
     } else if (error.request) {
-      return new Error('Network error. Please check your connection and try again.');
+      return new Error(
+        'Network error. Please check your connection and try again.'
+      );
     } else {
       return new Error(error.message || 'An unexpected error occurred.');
     }

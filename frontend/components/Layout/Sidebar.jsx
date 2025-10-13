@@ -24,7 +24,11 @@ export function Sidebar({ isOpen, setIsOpen }) {
 
   const getNavLinkClass = (isActive) => `
     flex items-center px-4 py-2 text-sm rounded-md transition-all duration-300 
-    ${isActive ? 'bg-indigo-800 text-white' : 'text-indigo-100 hover:bg-indigo-600'}
+    ${
+      isActive
+        ? 'bg-indigo-800 text-white'
+        : 'text-indigo-100 hover:bg-indigo-600'
+    }
   `;
 
   const getIconClass = () => `h-5 w-5 mr-3`;
@@ -44,15 +48,13 @@ export function Sidebar({ isOpen, setIsOpen }) {
       {/* Sidebar */}
       <div
         className={`
-          fixed top-0 left-0 h-full w-64 bg-indigo-700 text-white shadow-lg z-50
+          fixed top-0 left-0 h-full w-64 bg-indigo-700 dark:bg-gray-800 text-white shadow-lg z-50
           transform transition-transform duration-300 ease-in-out
           ${isOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
       >
         <div className="flex items-center justify-center h-16 px-4 border-b border-indigo-800">
-          <div className="text-lg font-semibold text-white">
-            Navigation
-          </div>
+          <div className="text-lg font-semibold text-white">Navigation</div>
         </div>
         <div className="px-4 py-4">
           <nav className="space-y-1">

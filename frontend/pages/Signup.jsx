@@ -48,11 +48,11 @@ export function Signup() {
       const result = await register({
         email,
         password,
-        full_name: name
+        full_name: name,
       });
-      
+
       console.log('Registration successful:', result.user);
-      
+
       // Navigate to home page after successful registration
       navigate('/');
     } catch (error) {
@@ -92,7 +92,7 @@ export function Signup() {
             Or{' '}
             <Link
               to="/login"
-              className="font-medium text-indigo-600 hover:text-indigo-500"
+              className="font-medium text-primary-600 hover:text-primary-500"
             >
               sign in to your account
             </Link>
@@ -116,7 +116,9 @@ export function Signup() {
               <div className="w-full border-t border-gray-300" />
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-gray-50 text-gray-500">Or continue with email</span>
+              <span className="px-2 bg-gray-50 text-gray-500">
+                Or continue with email
+              </span>
             </div>
           </div>
         </div>
@@ -131,7 +133,9 @@ export function Signup() {
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="rounded-md shadow-sm -space-y-px">
             <div>
-              <label htmlFor="name" className="sr-only">Full Name</label>
+              <label htmlFor="name" className="sr-only">
+                Full Name
+              </label>
               <input
                 id="name"
                 name="name"
@@ -141,7 +145,7 @@ export function Signup() {
                 onChange={(e) => setName(e.target.value)}
                 className={`appearance-none rounded-none relative block w-full px-3 py-2 border ${
                   errors.name ? 'border-red-300' : 'border-gray-300'
-                } placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
+                } placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm`}
                 placeholder="Full name"
               />
               {errors.name && (
@@ -149,7 +153,9 @@ export function Signup() {
               )}
             </div>
             <div>
-              <label htmlFor="email-address" className="sr-only">Email address</label>
+              <label htmlFor="email-address" className="sr-only">
+                Email address
+              </label>
               <input
                 id="email-address"
                 name="email"
@@ -159,7 +165,7 @@ export function Signup() {
                 onChange={(e) => setEmail(e.target.value)}
                 className={`appearance-none rounded-none relative block w-full px-3 py-2 border ${
                   errors.email ? 'border-red-300' : 'border-gray-300'
-                } placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
+                } placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm`}
                 placeholder="Email address"
               />
               {errors.email && (
@@ -167,7 +173,9 @@ export function Signup() {
               )}
             </div>
             <div className="relative">
-              <label htmlFor="password" className="sr-only">Password</label>
+              <label htmlFor="password" className="sr-only">
+                Password
+              </label>
               <input
                 id="password"
                 name="password"
@@ -177,7 +185,7 @@ export function Signup() {
                 onChange={(e) => setPassword(e.target.value)}
                 className={`appearance-none rounded-none relative block w-full px-3 py-2 border ${
                   errors.password ? 'border-red-300' : 'border-gray-300'
-                } placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm pr-10`}
+                } placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm pr-10`}
                 placeholder="Password"
               />
               <button
@@ -196,7 +204,9 @@ export function Signup() {
               )}
             </div>
             <div className="relative">
-              <label htmlFor="confirm-password" className="sr-only">Confirm Password</label>
+              <label htmlFor="confirm-password" className="sr-only">
+                Confirm Password
+              </label>
               <input
                 id="confirm-password"
                 name="confirm-password"
@@ -206,7 +216,7 @@ export function Signup() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className={`appearance-none rounded-none relative block w-full px-3 py-2 border ${
                   errors.confirmPassword ? 'border-red-300' : 'border-gray-300'
-                } placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
+                } placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm`}
                 placeholder="Confirm password"
               />
               {errors.confirmPassword && (
@@ -221,13 +231,13 @@ export function Signup() {
               type="submit"
               disabled={isLoading}
               className={`group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white ${
-                isLoading 
-                  ? 'bg-gray-400 cursor-not-allowed' 
-                  : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
+                isLoading
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500'
               }`}
             >
               <span className="absolute left-0 inset-y-0 flex items-center pl-3">
-                <UserPlus className="h-5 w-5 text-indigo-500 group-hover:text-indigo-400" />
+                <UserPlus className="h-5 w-5 text-primary-500 group-hover:text-primary-400" />
               </span>
               {isLoading ? 'Creating account...' : 'Sign up'}
             </button>

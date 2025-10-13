@@ -395,10 +395,17 @@ class SystemMonitor:
                         disk = psutil.disk_usage(root_path)
             else:
                 disk = psutil.disk_usage('/')
-            disk_percent = (disk.used / disk.total * 100) if disk.total > 0 else 0
+            # Safely calculate disk percentage
+            try:
+                disk_percent = float(disk.used) / float(disk.total) * 100.0 if disk.total > 0 else 0.0
+            except (OverflowError, ZeroDivisionError, ValueError):
+                disk_percent = 0.0
         except Exception as e:
             # Log without using structured logging to avoid recursion
-            print(f"Could not get disk usage: {e}")
+            try:
+                print(f"Could not get disk usage: {str(e)}")
+            except:
+                print("Could not get disk usage: [formatting error]")
             disk_percent = 0
         
         # Network connections

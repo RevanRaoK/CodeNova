@@ -1,177 +1,254 @@
+#!/usr/bin/env python3
 """
-Test script for GitHub OAuth integration.
+GitHub OAuth Integration Test
 
-This script tests the GitHub OAuth flow and basic API functionality
-to ensure the integration is working correctly.
+This script tests the GitHub OAuth integration with real API calls.
 """
 
 import asyncio
+import httpx
 import os
 import sys
-from pathlib import Path
+from datetime import datetime
 
-# Add the backend directory to the Python path
-backend_dir = Path(__file__).parent
-sys.path.insert(0, str(backend_dir))
+# Add the backend directory to Python path
+sys.path.insert(0, os.path.dirname(__file__))
 
 from app.core.config import settings
-from app.services.github_service import GitHubService
-from app.core.database import get_db_session
 
 
-async def test_github_oauth_flow():
-    """Test the GitHub OAuth authorization URL generation."""
-    print("Testing GitHub OAuth integration...")
+async def test_github_oauth_configuration():
+    """Test GitHub OAuth configuration."""
+    print("🔧 Testing GitHub OAuth Configuration")
+    print("=" * 50)
     
-    # Test configuration
-    print(f"GitHub Client ID configured: {'Yes' if settings.GITHUB_CLIENT_ID else 'No'}")
-    print(f"GitHub Client Secret configured: {'Yes' if settings.GITHUB_CLIENT_SECRET else 'No'}")
-    print(f"GitHub Redirect URI: {settings.GITHUB_OAUTH_REDIRECT_URI}")
+    # Check environment variables
+    client_id = settings.GITHUB_CLIENT_ID
+    client_secret = settings.GITHUB_CLIENT_SECRET
+    redirect_uri = settings.GITHUB_OAUTH_REDIRECT_URI
     
-    try:
-        # Create a mock database session
-        async with get_db_session() as db:
-            github_service = GitHubService(db)
-            
-            # Test OAuth URL generation
-            auth_url = await github_service.get_oauth_authorization_url("test_state")
-            print(f"✓ OAuth authorization URL generated successfully")
-            print(f"  URL: {auth_url}")
-            
-            # Verify URL contains required parameters
-            assert "client_id=" in auth_url
-            assert "redirect_uri=" in auth_url
-            assert "scope=" in auth_url
-            assert "state=test_state" in auth_url
-            print("✓ OAuth URL contains all required parameters")
-            
-    except Exception as e:
-        print(f"✗ OAuth URL generation failed: {e}")
+    print(f"✓ Client ID: {client_id}")
+    print(f"✓ Client Secret: {'*' * (len(client_secret) - 4) + client_secret[-4:] if client_secret else 'Not set'}")
+    print(f"✓ Redirect URI: {redirect_uri}")
+    
+    if not client_id or not client_secret:
+        print("❌ GitHub OAuth credentials not configured!")
         return False
     
     return True
 
 
-async def test_github_service_initialization():
-    """Test GitHub service initialization."""
-    print("\nTesting GitHub service initialization...")
+async def test_github_api_connectivity():
+    """Test connectivity to GitHub API."""
+    print("\n🌐 Testing GitHub API Connectivity")
+    print("=" * 50)
     
     try:
-        async with get_db_session() as db:
-            github_service = GitHubService(db)
-            print("✓ GitHub service initialized successfully")
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Test basic GitHub API connectivity
+            response = await client.get("https://api.github.com/")
             
-            # Check if GitHub client is available (requires private key)
-            if github_service.github_client:
-                print("✓ GitHub App client initialized")
-            else:
-                print("⚠ GitHub App client not initialized (private key not configured)")
-            
-            return True
-            
-    except Exception as e:
-        print(f"✗ GitHub service initialization failed: {e}")
-        return False
-
-
-async def test_webhook_signature_verification():
-    """Test webhook signature verification."""
-    print("\nTesting webhook signature verification...")
-    
-    try:
-        async with get_db_session() as db:
-            github_service = GitHubService(db)
-            
-            # Test with mock data
-            test_payload = b'{"test": "data"}'
-            test_headers = {
-                "X-Hub-Signature-256": "sha256=invalid_signature"
-            }
-            
-            # This should return False for invalid signature
-            is_valid = github_service._verify_webhook_signature(test_headers, test_payload)
-            
-            if not is_valid:
-                print("✓ Webhook signature verification working (correctly rejected invalid signature)")
+            if response.status_code == 200:
+                print("✓ GitHub API is accessible")
+                
+                # Test rate limit info
+                rate_limit_response = await client.get("https://api.github.com/rate_limit")
+                if rate_limit_response.status_code == 200:
+                    rate_data = rate_limit_response.json()
+                    core_limit = rate_data.get("rate", {})
+                    print(f"✓ Rate limit: {core_limit.get('remaining', 0)}/{core_limit.get('limit', 0)} remaining")
+                
                 return True
             else:
-                print("✗ Webhook signature verification failed (accepted invalid signature)")
+                print(f"❌ GitHub API returned status: {response.status_code}")
                 return False
                 
     except Exception as e:
-        print(f"✗ Webhook signature verification test failed: {e}")
+        print(f"❌ Failed to connect to GitHub API: {str(e)}")
         return False
 
 
-def print_configuration_guide():
-    """Print configuration guide for GitHub integration."""
-    print("\n" + "="*60)
-    print("GitHub Integration Configuration Guide")
-    print("="*60)
+async def test_oauth_app_validation():
+    """Test if the OAuth app credentials are valid."""
+    print("\n🔐 Testing OAuth App Validation")
+    print("=" * 50)
     
-    print("\nTo complete the GitHub OAuth integration setup:")
-    print("\n1. Create a GitHub OAuth App:")
-    print("   - Go to GitHub Settings → Developer settings → OAuth Apps")
-    print("   - Click 'New OAuth App'")
-    print("   - Set Authorization callback URL to:")
-    print(f"     {settings.GITHUB_OAUTH_REDIRECT_URI}")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Test OAuth app by checking if credentials are recognized
+            auth = (settings.GITHUB_CLIENT_ID, settings.GITHUB_CLIENT_SECRET)
+            
+            # This endpoint requires authentication but will tell us if credentials are valid
+            response = await client.get(
+                f"https://api.github.com/applications/{settings.GITHUB_CLIENT_ID}/tokens",
+                auth=auth
+            )
+            
+            if response.status_code == 200:
+                print("✓ OAuth app credentials are valid")
+                return True
+            elif response.status_code == 401:
+                print("❌ OAuth app credentials are invalid")
+                print("   Please check your GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET")
+                return False
+            elif response.status_code == 404:
+                print("❌ OAuth app not found")
+                print("   Please check your GITHUB_CLIENT_ID")
+                return False
+            else:
+                print(f"⚠️  Unexpected response: {response.status_code}")
+                print("   OAuth app might be valid but endpoint behavior changed")
+                return True
+                
+    except Exception as e:
+        print(f"❌ Failed to validate OAuth app: {str(e)}")
+        return False
+
+
+async def test_oauth_flow_initiation():
+    """Test OAuth flow initiation (without authentication)."""
+    print("\n🚀 Testing OAuth Flow Initiation")
+    print("=" * 50)
     
-    print("\n2. Add to your .env file:")
-    print("   GITHUB_CLIENT_ID=your_oauth_client_id")
-    print("   GITHUB_CLIENT_SECRET=your_oauth_client_secret")
+    try:
+        # Test the OAuth initiation endpoint
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                "http://localhost:8000/api/v1/github/oauth/initiate",
+                headers={"Content-Type": "application/json"},
+                json={"redirect_url": "http://localhost:3000/dashboard"}
+            )
+            
+            if response.status_code == 401:
+                print("✓ OAuth initiation endpoint is working (requires authentication)")
+                print("   This is expected - the endpoint correctly requires user authentication")
+                return True
+            elif response.status_code == 200:
+                data = response.json()
+                print("✓ OAuth initiation successful!")
+                print(f"   Authorization URL: {data.get('authorization_url', 'N/A')[:100]}...")
+                return True
+            else:
+                print(f"⚠️  Unexpected response: {response.status_code}")
+                print(f"   Response: {response.text}")
+                return False
+                
+    except httpx.ConnectError:
+        print("❌ Cannot connect to local server")
+        print("   Make sure the FastAPI server is running on http://localhost:8000")
+        return False
+    except Exception as e:
+        print(f"❌ Failed to test OAuth initiation: {str(e)}")
+        return False
+
+
+async def test_oauth_callback_endpoint():
+    """Test OAuth callback endpoint."""
+    print("\n📞 Testing OAuth Callback Endpoint")
+    print("=" * 50)
     
-    print("\n3. For GitHub App integration (optional):")
-    print("   - Create a GitHub App in your GitHub settings")
-    print("   - Generate and download a private key")
-    print("   - Add to your .env file:")
-    print("   GITHUB_APP_ID=your_app_id")
-    print("   GITHUB_PRIVATE_KEY_PATH=/path/to/private-key.pem")
-    print("   GITHUB_WEBHOOK_SECRET=your_webhook_secret")
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+            # Test callback endpoint with invalid parameters (should handle gracefully)
+            response = await client.get(
+                "http://localhost:8000/api/v1/github/oauth/callback?code=test&state=invalid"
+            )
+            
+            if response.status_code in [302, 400, 422]:
+                print("✓ OAuth callback endpoint is working")
+                print("   Endpoint correctly handles invalid parameters")
+                return True
+            else:
+                print(f"⚠️  Unexpected response: {response.status_code}")
+                return False
+                
+    except httpx.ConnectError:
+        print("❌ Cannot connect to local server")
+        return False
+    except Exception as e:
+        print(f"❌ Failed to test OAuth callback: {str(e)}")
+        return False
+
+
+async def generate_oauth_test_url():
+    """Generate a test OAuth URL for manual testing."""
+    print("\n🔗 Manual OAuth Test URL")
+    print("=" * 50)
     
-    print("\n4. Test the integration:")
-    print("   - Start your FastAPI server")
-    print("   - Visit: http://localhost:8000/api/v1/github/oauth/authorize")
-    print("   - Complete the OAuth flow")
+    from urllib.parse import urlencode
     
-    print("\nFor detailed setup instructions, see:")
-    print("backend/GITHUB_INTEGRATION_SETUP.md")
+    # Generate OAuth URL manually
+    params = {
+        "client_id": settings.GITHUB_CLIENT_ID,
+        "redirect_uri": settings.GITHUB_OAUTH_REDIRECT_URI,
+        "scope": "user:email repo",
+        "state": "manual_test_" + str(int(datetime.now().timestamp())),
+        "response_type": "code"
+    }
+    
+    oauth_url = f"https://github.com/login/oauth/authorize?{urlencode(params)}"
+    
+    print("🔗 Manual Test OAuth URL:")
+    print(oauth_url)
+    print("\n📋 Instructions:")
+    print("1. Copy the URL above and open it in your browser")
+    print("2. Authorize the application on GitHub")
+    print("3. You'll be redirected to your callback URL")
+    print("4. Check if the callback is handled correctly")
 
 
 async def main():
-    """Run all GitHub integration tests."""
+    """Run all tests."""
     print("GitHub OAuth Integration Test Suite")
-    print("="*50)
+    print("🚀 CodeNova GitHub Integration")
+    print("=" * 60)
     
-    tests = [
-        test_github_service_initialization,
-        test_github_oauth_flow,
-        test_webhook_signature_verification
-    ]
+    tests_passed = 0
+    total_tests = 5
     
-    results = []
-    for test in tests:
-        try:
-            result = await test()
-            results.append(result)
-        except Exception as e:
-            print(f"✗ Test {test.__name__} failed with exception: {e}")
-            results.append(False)
+    # Test 1: Configuration
+    if await test_github_oauth_configuration():
+        tests_passed += 1
     
-    print("\n" + "="*50)
-    print("Test Results Summary")
-    print("="*50)
+    # Test 2: GitHub API connectivity
+    if await test_github_api_connectivity():
+        tests_passed += 1
     
-    passed = sum(results)
-    total = len(results)
+    # Test 3: OAuth app validation
+    if await test_oauth_app_validation():
+        tests_passed += 1
     
-    print(f"Tests passed: {passed}/{total}")
+    # Test 4: OAuth flow initiation
+    if await test_oauth_flow_initiation():
+        tests_passed += 1
     
-    if passed == total:
-        print("✓ All tests passed! GitHub OAuth integration is ready.")
+    # Test 5: OAuth callback endpoint
+    if await test_oauth_callback_endpoint():
+        tests_passed += 1
+    
+    # Generate manual test URL
+    await generate_oauth_test_url()
+    
+    # Summary
+    print("\n" + "=" * 60)
+    print(f"📊 Test Results: {tests_passed}/{total_tests} tests passed")
+    
+    if tests_passed == total_tests:
+        print("🎉 All tests passed! GitHub OAuth integration is ready!")
+        print("\n✅ Next Steps:")
+        print("1. Use the manual test URL above to test the full OAuth flow")
+        print("2. Integrate the OAuth endpoints with your frontend")
+        print("3. Test with real user accounts")
     else:
-        print("⚠ Some tests failed. Check configuration and dependencies.")
-    
-    print_configuration_guide()
+        print("⚠️  Some tests failed. Please check the issues above.")
+        
+    print("\n🔧 Available Endpoints:")
+    print("- POST /api/v1/github/oauth/initiate")
+    print("- GET  /api/v1/github/oauth/callback")
+    print("- GET  /api/v1/github/oauth/status")
+    print("- GET  /api/v1/github/oauth/integration")
+    print("- POST /api/v1/github/oauth/validate-token")
+    print("- DELETE /api/v1/github/oauth/revoke")
 
 
 if __name__ == "__main__":

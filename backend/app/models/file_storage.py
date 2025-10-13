@@ -32,6 +32,11 @@ class StoredFile(Base):
     is_public = Column(Boolean, default=False, nullable=False)  # Public access flag
     access_permissions = Column(String(500), nullable=True)  # JSON string of access permissions
     
+    # Batch upload metadata
+    batch_id = Column(String(36), nullable=True, index=True)  # For grouping multiple uploads
+    upload_metadata = Column(String(2000), nullable=True)  # JSON string for additional metadata
+    processing_status = Column(String(20), default="completed", nullable=False, index=True)  # PENDING, PROCESSING, COMPLETED, FAILED
+    
     # Analysis metadata
     is_analyzed = Column(Boolean, default=False, nullable=False, index=True)
     analysis_id = Column(String(36), nullable=True, index=True)  # Link to analysis result

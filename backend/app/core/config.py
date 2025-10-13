@@ -4,6 +4,7 @@ from pydantic import AnyUrl, Field
 class Settings(BaseSettings):
     PROJECT_NAME: str = "CodeNova Intelligent Code Review Bot"
     API_V1_STR: str = "/api/v1"
+    APP_VERSION: str = "1.0.0"  # Application version for User-Agent headers
     DATABASE_URL: str = "postgresql://postgres:codenova_secure_password@localhost:5432/codenova_db"
     GEMINI_API_KEY: str = ""  # Made optional with empty string as default
     GEMINI_MODEL: str = "models/gemini-1.5-flash"  # Default model, can be overridden in .env
@@ -18,6 +19,9 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
     TESTING: bool = False
+    
+    # Frontend Configuration
+    FRONTEND_URL: str = "http://localhost:5173"  # Vite default port
     
     # Google OAuth Configuration
     GOOGLE_CLIENT_ID: str = ""

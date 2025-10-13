@@ -17,7 +17,7 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  
+
   // Get notification functions, but handle case where NotificationProvider might not be available yet
   let showSuccess, showError, showWarning;
   try {
@@ -39,7 +39,7 @@ export const AuthProvider = ({ children }) => {
         const currentUser = authService.getCurrentUser();
         const currentToken = authService.getToken();
         const hasValidToken = authService.isAuthenticated();
-        
+
         if (currentUser && hasValidToken && currentToken) {
           // Verify token is still valid
           const tokenValid = await authService.ensureValidToken();
@@ -147,7 +147,7 @@ export const AuthProvider = ({ children }) => {
       console.log('📡 Calling authService.loginWithGoogle...');
       const result = await authService.loginWithGoogle(credentialResponse);
       console.log('✅ AuthService response:', result);
-      
+
       setUser(result.user);
       setToken(result.token);
       setIsAuthenticated(true);
@@ -167,6 +167,14 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Method to update user data (for profile updates)
+  const updateUser = (userData) => {
+    setUser(prevUser => ({
+      ...prevUser,
+      ...userData
+    }));
+  };
+
   const value = {
     user,
     token,
@@ -176,7 +184,8 @@ export const AuthProvider = ({ children }) => {
     register,
     logout,
     refreshToken,
-    loginWithGoogle
+    loginWithGoogle,
+    setUser: updateUser
   };
 
   return (

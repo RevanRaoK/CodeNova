@@ -8,7 +8,7 @@ vi.mock('../httpClient.js', () => ({
     get: vi.fn(),
     post: vi.fn(),
     delete: vi.fn(),
-  }
+  },
 }));
 
 describe('GitHubService', () => {
@@ -24,7 +24,7 @@ describe('GitHubService', () => {
     it('should fetch repositories successfully', async () => {
       const mockRepositories = [
         { id: '1', name: 'repo1', url: 'https://github.com/user/repo1' },
-        { id: '2', name: 'repo2', url: 'https://github.com/user/repo2' }
+        { id: '2', name: 'repo2', url: 'https://github.com/user/repo2' },
       ];
 
       httpClient.get.mockResolvedValue({ data: mockRepositories });
@@ -41,7 +41,9 @@ describe('GitHubService', () => {
 
       httpClient.get.mockRejectedValue(mockError);
 
-      await expect(githubService.getRepositories()).rejects.toThrow('Server error. Please try again later.');
+      await expect(githubService.getRepositories()).rejects.toThrow(
+        'Server error. Please try again later.'
+      );
     });
   });
 
@@ -49,7 +51,7 @@ describe('GitHubService', () => {
     it('should connect repository successfully', async () => {
       const repoData = {
         repo_url: 'https://github.com/user/repo',
-        access_token: 'token123'
+        access_token: 'token123',
       };
       const mockResponse = { id: '1', ...repoData, connected: true };
 
@@ -57,18 +59,26 @@ describe('GitHubService', () => {
 
       const result = await githubService.connectRepository(repoData);
 
-      expect(httpClient.post).toHaveBeenCalledWith('/github/repositories', repoData);
+      expect(httpClient.post).toHaveBeenCalledWith(
+        '/github/repositories',
+        repoData
+      );
       expect(result).toEqual(mockResponse);
     });
 
     it('should handle repository already connected error', async () => {
       const repoData = { repo_url: 'https://github.com/user/repo' };
       const mockError = new Error('Conflict');
-      mockError.response = { status: 409, data: { detail: 'Repository already connected' } };
+      mockError.response = {
+        status: 409,
+        data: { detail: 'Repository already connected' },
+      };
 
       httpClient.post.mockRejectedValue(mockError);
 
-      await expect(githubService.connectRepository(repoData)).rejects.toThrow('Repository is already connected or webhook already exists.');
+      await expect(githubService.connectRepository(repoData)).rejects.toThrow(
+        'Repository is already connected or webhook already exists.'
+      );
     });
   });
 
@@ -80,41 +90,58 @@ describe('GitHubService', () => {
 
       await githubService.disconnectRepository(repositoryId);
 
-      expect(httpClient.delete).toHaveBeenCalledWith('/github/repositories/repo123');
+      expect(httpClient.delete).toHaveBeenCalledWith(
+        '/github/repositories/repo123'
+      );
     });
 
     it('should handle repository not found error', async () => {
       const repositoryId = 'nonexistent';
       const mockError = new Error('Not found');
-      mockError.response = { status: 404, data: { detail: 'Repository not found' } };
+      mockError.response = {
+        status: 404,
+        data: { detail: 'Repository not found' },
+      };
 
       httpClient.delete.mockRejectedValue(mockError);
 
-      await expect(githubService.disconnectRepository(repositoryId)).rejects.toThrow('Repository not found or not accessible.');
+      await expect(
+        githubService.disconnectRepository(repositoryId)
+      ).rejects.toThrow('Repository not found or not accessible.');
     });
   });
 
   describe('getWebhookStatus', () => {
     it('should get webhook status successfully', async () => {
       const repositoryId = 'repo123';
-      const mockStatus = { active: true, url: 'https://api.example.com/webhook' };
+      const mockStatus = {
+        active: true,
+        url: 'https://api.example.com/webhook',
+      };
 
       httpClient.get.mockResolvedValue({ data: mockStatus });
 
       const result = await githubService.getWebhookStatus(repositoryId);
 
-      expect(httpClient.get).toHaveBeenCalledWith('/github/repositories/repo123/webhook');
+      expect(httpClient.get).toHaveBeenCalledWith(
+        '/github/repositories/repo123/webhook'
+      );
       expect(result).toEqual(mockStatus);
     });
 
     it('should handle webhook not found', async () => {
       const repositoryId = 'repo123';
       const mockError = new Error('Not found');
-      mockError.response = { status: 404, data: { detail: 'Webhook not found' } };
+      mockError.response = {
+        status: 404,
+        data: { detail: 'Webhook not found' },
+      };
 
       httpClient.get.mockRejectedValue(mockError);
 
-      await expect(githubService.getWebhookStatus(repositoryId)).rejects.toThrow('Repository not found or not accessible.');
+      await expect(
+        githubService.getWebhookStatus(repositoryId)
+      ).rejects.toThrow('Repository not found or not accessible.');
     });
   });
 
@@ -126,9 +153,15 @@ describe('GitHubService', () => {
 
       httpClient.post.mockResolvedValue({ data: mockResponse });
 
-      const result = await githubService.setupWebhook(repositoryId, webhookConfig);
+      const result = await githubService.setupWebhook(
+        repositoryId,
+        webhookConfig
+      );
 
-      expect(httpClient.post).toHaveBeenCalledWith('/github/repositories/repo123/webhook', webhookConfig);
+      expect(httpClient.post).toHaveBeenCalledWith(
+        '/github/repositories/repo123/webhook',
+        webhookConfig
+      );
       expect(result).toEqual(mockResponse);
     });
 
@@ -140,18 +173,26 @@ describe('GitHubService', () => {
 
       const result = await githubService.setupWebhook(repositoryId);
 
-      expect(httpClient.post).toHaveBeenCalledWith('/github/repositories/repo123/webhook', {});
+      expect(httpClient.post).toHaveBeenCalledWith(
+        '/github/repositories/repo123/webhook',
+        {}
+      );
       expect(result).toEqual(mockResponse);
     });
 
     it('should handle permission denied error', async () => {
       const repositoryId = 'repo123';
       const mockError = new Error('Forbidden');
-      mockError.response = { status: 403, data: { detail: 'Insufficient permissions' } };
+      mockError.response = {
+        status: 403,
+        data: { detail: 'Insufficient permissions' },
+      };
 
       httpClient.post.mockRejectedValue(mockError);
 
-      await expect(githubService.setupWebhook(repositoryId)).rejects.toThrow('Access denied. You may not have permission to access this repository.');
+      await expect(githubService.setupWebhook(repositoryId)).rejects.toThrow(
+        'Access denied. You may not have permission to access this repository.'
+      );
     });
   });
 
@@ -162,28 +203,37 @@ describe('GitHubService', () => {
       const mockResponse = {
         analyses: [
           { id: 'analysis1', pr_number: 1, status: 'completed' },
-          { id: 'analysis2', pr_number: 2, status: 'completed' }
+          { id: 'analysis2', pr_number: 2, status: 'completed' },
         ],
-        pagination: { page: 1, limit: 10, total: 2 }
+        pagination: { page: 1, limit: 10, total: 2 },
       };
 
       httpClient.get.mockResolvedValue({ data: mockResponse });
 
       const result = await githubService.getPRAnalyses(repositoryId, params);
 
-      expect(httpClient.get).toHaveBeenCalledWith('/github/repositories/repo123/pr-analyses', { params });
+      expect(httpClient.get).toHaveBeenCalledWith(
+        '/github/repositories/repo123/pr-analyses',
+        { params }
+      );
       expect(result).toEqual(mockResponse);
     });
 
     it('should get PR analyses with default params', async () => {
       const repositoryId = 'repo123';
-      const mockResponse = { analyses: [], pagination: { page: 1, limit: 20, total: 0 } };
+      const mockResponse = {
+        analyses: [],
+        pagination: { page: 1, limit: 20, total: 0 },
+      };
 
       httpClient.get.mockResolvedValue({ data: mockResponse });
 
       const result = await githubService.getPRAnalyses(repositoryId);
 
-      expect(httpClient.get).toHaveBeenCalledWith('/github/repositories/repo123/pr-analyses', { params: {} });
+      expect(httpClient.get).toHaveBeenCalledWith(
+        '/github/repositories/repo123/pr-analyses',
+        { params: {} }
+      );
       expect(result).toEqual(mockResponse);
     });
   });
@@ -196,14 +246,19 @@ describe('GitHubService', () => {
         id: 'analysis123',
         pr_number: 1,
         status: 'completed',
-        results: { issues: [], suggestions: [] }
+        results: { issues: [], suggestions: [] },
       };
 
       httpClient.get.mockResolvedValue({ data: mockAnalysis });
 
-      const result = await githubService.getPRAnalysis(repositoryId, analysisId);
+      const result = await githubService.getPRAnalysis(
+        repositoryId,
+        analysisId
+      );
 
-      expect(httpClient.get).toHaveBeenCalledWith('/github/repositories/repo123/pr-analyses/analysis123');
+      expect(httpClient.get).toHaveBeenCalledWith(
+        '/github/repositories/repo123/pr-analyses/analysis123'
+      );
       expect(result).toEqual(mockAnalysis);
     });
 
@@ -211,11 +266,16 @@ describe('GitHubService', () => {
       const repositoryId = 'repo123';
       const analysisId = 'nonexistent';
       const mockError = new Error('Not found');
-      mockError.response = { status: 404, data: { detail: 'Analysis not found' } };
+      mockError.response = {
+        status: 404,
+        data: { detail: 'Analysis not found' },
+      };
 
       httpClient.get.mockRejectedValue(mockError);
 
-      await expect(githubService.getPRAnalysis(repositoryId, analysisId)).rejects.toThrow('Repository not found or not accessible.');
+      await expect(
+        githubService.getPRAnalysis(repositoryId, analysisId)
+      ).rejects.toThrow('Repository not found or not accessible.');
     });
   });
 
@@ -227,11 +287,17 @@ describe('GitHubService', () => {
 
       httpClient.post.mockResolvedValue({ data: mockResponse });
 
-      const result = await githubService.triggerPRAnalysis(repositoryId, prNumber);
+      const result = await githubService.triggerPRAnalysis(
+        repositoryId,
+        prNumber
+      );
 
-      expect(httpClient.post).toHaveBeenCalledWith('/github/repositories/repo123/pr-analyses', {
-        pr_number: prNumber
-      });
+      expect(httpClient.post).toHaveBeenCalledWith(
+        '/github/repositories/repo123/pr-analyses',
+        {
+          pr_number: prNumber,
+        }
+      );
       expect(result).toEqual(mockResponse);
     });
 
@@ -243,7 +309,9 @@ describe('GitHubService', () => {
 
       httpClient.post.mockRejectedValue(mockError);
 
-      await expect(githubService.triggerPRAnalysis(repositoryId, prNumber)).rejects.toThrow('Invalid request. Please check your input.');
+      await expect(
+        githubService.triggerPRAnalysis(repositoryId, prNumber)
+      ).rejects.toThrow('Invalid request. Please check your input.');
     });
   });
 
@@ -254,28 +322,40 @@ describe('GitHubService', () => {
       const mockResponse = {
         issues: [
           { id: 'issue1', title: 'Bug in component', status: 'open' },
-          { id: 'issue2', title: 'Another bug', status: 'open' }
+          { id: 'issue2', title: 'Another bug', status: 'open' },
         ],
-        pagination: { page: 1, limit: 10, total: 2 }
+        pagination: { page: 1, limit: 10, total: 2 },
       };
 
       httpClient.get.mockResolvedValue({ data: mockResponse });
 
-      const result = await githubService.getRepositoryIssues(repositoryId, params);
+      const result = await githubService.getRepositoryIssues(
+        repositoryId,
+        params
+      );
 
-      expect(httpClient.get).toHaveBeenCalledWith('/github/repositories/repo123/issues', { params });
+      expect(httpClient.get).toHaveBeenCalledWith(
+        '/github/repositories/repo123/issues',
+        { params }
+      );
       expect(result).toEqual(mockResponse);
     });
 
     it('should get repository issues with default params', async () => {
       const repositoryId = 'repo123';
-      const mockResponse = { issues: [], pagination: { page: 1, limit: 20, total: 0 } };
+      const mockResponse = {
+        issues: [],
+        pagination: { page: 1, limit: 20, total: 0 },
+      };
 
       httpClient.get.mockResolvedValue({ data: mockResponse });
 
       const result = await githubService.getRepositoryIssues(repositoryId);
 
-      expect(httpClient.get).toHaveBeenCalledWith('/github/repositories/repo123/issues', { params: {} });
+      expect(httpClient.get).toHaveBeenCalledWith(
+        '/github/repositories/repo123/issues',
+        { params: {} }
+      );
       expect(result).toEqual(mockResponse);
     });
   });
@@ -286,36 +366,32 @@ describe('GitHubService', () => {
         const redirectUri = 'https://app.example.com/callback';
         const scopes = ['repo', 'user'];
         const mockResponse = {
-          authorization_url: 'https://github.com/login/oauth/authorize?client_id=123&redirect_uri=...',
-          state: 'random-state-string'
+          authorization_url:
+            'https://github.com/login/oauth/authorize?client_id=123&redirect_uri=...',
+          state: 'random-state-string',
         };
 
-        httpClient.post.mockResolvedValue({ data: mockResponse });
+        httpClient.get.mockResolvedValue({ data: mockResponse });
 
         const result = await githubService.getOAuthUrl(redirectUri, scopes);
 
-        expect(httpClient.post).toHaveBeenCalledWith('/github/oauth/authorize', {
-          redirect_uri: redirectUri,
-          scopes
-        });
+        expect(httpClient.get).toHaveBeenCalledWith('/github/oauth/authorize');
         expect(result).toEqual(mockResponse);
       });
 
       it('should get OAuth URL with default scopes', async () => {
         const redirectUri = 'https://app.example.com/callback';
         const mockResponse = {
-          authorization_url: 'https://github.com/login/oauth/authorize?client_id=123&redirect_uri=...',
-          state: 'random-state-string'
+          authorization_url:
+            'https://github.com/login/oauth/authorize?client_id=123&redirect_uri=...',
+          state: 'random-state-string',
         };
 
-        httpClient.post.mockResolvedValue({ data: mockResponse });
+        httpClient.get.mockResolvedValue({ data: mockResponse });
 
         const result = await githubService.getOAuthUrl(redirectUri);
 
-        expect(httpClient.post).toHaveBeenCalledWith('/github/oauth/authorize', {
-          redirect_uri: redirectUri,
-          scopes: ['repo']
-        });
+        expect(httpClient.get).toHaveBeenCalledWith('/github/oauth/authorize');
         expect(result).toEqual(mockResponse);
       });
     });
@@ -326,7 +402,7 @@ describe('GitHubService', () => {
         const state = 'state-string';
         const mockResponse = {
           access_token: 'token123',
-          user: { login: 'testuser', id: 12345 }
+          user: { login: 'testuser', id: 12345 },
         };
 
         httpClient.post.mockResolvedValue({ data: mockResponse });
@@ -335,7 +411,7 @@ describe('GitHubService', () => {
 
         expect(httpClient.post).toHaveBeenCalledWith('/github/oauth/callback', {
           code,
-          state
+          state,
         });
         expect(result).toEqual(mockResponse);
       });
@@ -344,11 +420,16 @@ describe('GitHubService', () => {
         const code = 'invalid-code';
         const state = 'state-string';
         const mockError = new Error('Bad request');
-        mockError.response = { status: 400, data: { detail: 'Invalid authorization code' } };
+        mockError.response = {
+          status: 400,
+          data: { detail: 'Invalid authorization code' },
+        };
 
         httpClient.post.mockRejectedValue(mockError);
 
-        await expect(githubService.completeOAuth(code, state)).rejects.toThrow('Invalid request. Please check your input.');
+        await expect(githubService.completeOAuth(code, state)).rejects.toThrow(
+          'Invalid request. Please check your input.'
+        );
       });
     });
 
@@ -357,7 +438,7 @@ describe('GitHubService', () => {
         const mockStatus = {
           connected: true,
           user: { login: 'testuser', id: 12345 },
-          scopes: ['repo', 'user']
+          scopes: ['repo', 'user'],
         };
 
         httpClient.get.mockResolvedValue({ data: mockStatus });
@@ -370,11 +451,16 @@ describe('GitHubService', () => {
 
       it('should handle unauthorized status check', async () => {
         const mockError = new Error('Unauthorized');
-        mockError.response = { status: 401, data: { detail: 'Not authenticated' } };
+        mockError.response = {
+          status: 401,
+          data: { detail: 'Not authenticated' },
+        };
 
         httpClient.get.mockRejectedValue(mockError);
 
-        await expect(githubService.getOAuthStatus()).rejects.toThrow('Authentication required. Please log in again.');
+        await expect(githubService.getOAuthStatus()).rejects.toThrow(
+          'Authentication required. Please log in again.'
+        );
       });
     });
 
@@ -389,11 +475,16 @@ describe('GitHubService', () => {
 
       it('should handle revoke error', async () => {
         const mockError = new Error('Server error');
-        mockError.response = { status: 500, data: { detail: 'Failed to revoke token' } };
+        mockError.response = {
+          status: 500,
+          data: { detail: 'Failed to revoke token' },
+        };
 
         httpClient.delete.mockRejectedValue(mockError);
 
-        await expect(githubService.revokeOAuth()).rejects.toThrow('Server error. Please try again later.');
+        await expect(githubService.revokeOAuth()).rejects.toThrow(
+          'Server error. Please try again later.'
+        );
       });
     });
   });
@@ -408,14 +499,20 @@ describe('GitHubService', () => {
         analysis_count: 12,
         issues_found: 45,
         issues_resolved: 38,
-        trends: { pr_frequency: 'increasing', issue_resolution_rate: 0.84 }
+        trends: { pr_frequency: 'increasing', issue_resolution_rate: 0.84 },
       };
 
       httpClient.get.mockResolvedValue({ data: mockAnalytics });
 
-      const result = await githubService.getRepositoryAnalytics(repositoryId, params);
+      const result = await githubService.getRepositoryAnalytics(
+        repositoryId,
+        params
+      );
 
-      expect(httpClient.get).toHaveBeenCalledWith('/github/repositories/repo123/analytics', { params });
+      expect(httpClient.get).toHaveBeenCalledWith(
+        '/github/repositories/repo123/analytics',
+        { params }
+      );
       expect(result).toEqual(mockAnalytics);
     });
 
@@ -426,14 +523,17 @@ describe('GitHubService', () => {
         pr_count: 3,
         analysis_count: 2,
         issues_found: 8,
-        issues_resolved: 6
+        issues_resolved: 6,
       };
 
       httpClient.get.mockResolvedValue({ data: mockAnalytics });
 
       const result = await githubService.getRepositoryAnalytics(repositoryId);
 
-      expect(httpClient.get).toHaveBeenCalledWith('/github/repositories/repo123/analytics', { params: {} });
+      expect(httpClient.get).toHaveBeenCalledWith(
+        '/github/repositories/repo123/analytics',
+        { params: {} }
+      );
       expect(result).toEqual(mockAnalytics);
     });
   });
@@ -454,7 +554,9 @@ describe('GitHubService', () => {
 
       const result = githubService.handleError(error);
 
-      expect(result.message).toBe('Authentication required. Please log in again.');
+      expect(result.message).toBe(
+        'Authentication required. Please log in again.'
+      );
     });
 
     it('should handle 403 Forbidden error', () => {
@@ -463,7 +565,9 @@ describe('GitHubService', () => {
 
       const result = githubService.handleError(error);
 
-      expect(result.message).toBe('Access denied. You may not have permission to access this repository.');
+      expect(result.message).toBe(
+        'Access denied. You may not have permission to access this repository.'
+      );
     });
 
     it('should handle 404 Not Found error', () => {
@@ -481,7 +585,9 @@ describe('GitHubService', () => {
 
       const result = githubService.handleError(error);
 
-      expect(result.message).toBe('Repository is already connected or webhook already exists.');
+      expect(result.message).toBe(
+        'Repository is already connected or webhook already exists.'
+      );
     });
 
     it('should handle 422 Unprocessable Entity error', () => {
@@ -499,7 +605,9 @@ describe('GitHubService', () => {
 
       const result = githubService.handleError(error);
 
-      expect(result.message).toBe('Rate limit exceeded. Please try again later.');
+      expect(result.message).toBe(
+        'Rate limit exceeded. Please try again later.'
+      );
     });
 
     it('should handle 500 Internal Server Error', () => {
@@ -517,7 +625,9 @@ describe('GitHubService', () => {
 
       const result = githubService.handleError(error);
 
-      expect(result.message).toBe('GitHub API is temporarily unavailable. Please try again later.');
+      expect(result.message).toBe(
+        'GitHub API is temporarily unavailable. Please try again later.'
+      );
     });
 
     it('should handle unknown HTTP error', () => {
@@ -535,7 +645,9 @@ describe('GitHubService', () => {
 
       const result = githubService.handleError(error);
 
-      expect(result.message).toBe('Network error. Please check your connection and try again.');
+      expect(result.message).toBe(
+        'Network error. Please check your connection and try again.'
+      );
     });
 
     it('should handle generic error', () => {
@@ -570,7 +682,9 @@ describe('GitHubService', () => {
 
       httpClient.get.mockRejectedValue(mockError);
 
-      await expect(githubService.getRepositories()).rejects.toThrow('Invalid request. Please check your input.');
+      await expect(githubService.getRepositories()).rejects.toThrow(
+        'Invalid request. Please check your input.'
+      );
     });
 
     it('should handle timeout errors', async () => {
@@ -579,7 +693,9 @@ describe('GitHubService', () => {
 
       httpClient.get.mockRejectedValue(mockError);
 
-      await expect(githubService.getRepositories()).rejects.toThrow('timeout of 5000ms exceeded');
+      await expect(githubService.getRepositories()).rejects.toThrow(
+        'timeout of 5000ms exceeded'
+      );
     });
 
     it('should handle concurrent requests properly', async () => {
@@ -592,7 +708,7 @@ describe('GitHubService', () => {
 
       const [result1, result2] = await Promise.all([
         githubService.getPRAnalysis('repo1', 'analysis1'),
-        githubService.getPRAnalysis('repo2', 'analysis2')
+        githubService.getPRAnalysis('repo2', 'analysis2'),
       ]);
 
       expect(result1).toEqual(mockRepo1);
@@ -600,4 +716,5 @@ describe('GitHubService', () => {
       expect(httpClient.get).toHaveBeenCalledTimes(2);
     });
   });
-}); httpClient.js;
+});
+httpClient.js;

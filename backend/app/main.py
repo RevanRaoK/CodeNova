@@ -55,6 +55,22 @@ async def lifespan(app: FastAPI):
         logger.error("Failed to initialize background job service", error=e)
     
     try:
+        # Initialize background code analysis service
+        from app.services.background_code_analysis_service import background_code_analysis_service
+        await background_code_analysis_service.initialize()
+        logger.info("Background code analysis service initialized")
+    except Exception as e:
+        logger.error("Failed to initialize background code analysis service", error=e)
+    
+    try:
+        # Initialize analysis notification service
+        from app.services.analysis_notification_service import analysis_notification_service
+        await analysis_notification_service.initialize()
+        logger.info("Analysis notification service initialized")
+    except Exception as e:
+        logger.error("Failed to initialize analysis notification service", error=e)
+    
+    try:
         # Initialize performance optimizations in production
         if settings.ENVIRONMENT == "production":
             from app.core.production_config import ProductionOptimizer
@@ -92,6 +108,12 @@ async def lifespan(app: FastAPI):
         logger.info("Background job service closed")
     except Exception as e:
         logger.error("Error closing background job service", error=e)
+    
+    try:
+        # Close background code analysis service (if needed)
+        logger.info("Background code analysis service closed")
+    except Exception as e:
+        logger.error("Error closing background code analysis service", error=e)
     
     try:
         # Stop system monitoring

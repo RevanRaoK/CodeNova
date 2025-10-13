@@ -11,10 +11,12 @@ import os
 import uuid
 import hashlib
 import mimetypes
+import asyncio
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any, BinaryIO
 from pathlib import Path
 import json
+import logging
 
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
@@ -26,6 +28,8 @@ from pydantic import BaseModel
 from app.models.file_storage import StoredFile
 from app.models.users import User
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class FileUploadResult(BaseModel):
@@ -53,6 +57,17 @@ class FileListResult(BaseModel):
     files: List[Dict[str, Any]]
     total_count: int
     total_size: int
+
+
+class BatchUploadResult(BaseModel):
+    """Result of batch file upload operation"""
+    batch_id: str
+    uploaded_files: List[FileUploadResult]
+    failed_files: List[Dict[str, Any]]
+    total_files: int
+    successful_uploads: int
+    failed_uploads: int
+    analysis_job_ids: List[str]  # Background job IDs for code analysis
 
 
 class FileStorageError(Exception):
@@ -275,6 +290,14 @@ class FileStorageService:
             file_id = str(uuid.uuid4())
             spaces_url = f"{self.endpoint_url}/{self.bucket_name}/{file_key}"
             
+            # Prepare upload metadata for storage
+            upload_metadata_json = None
+            if metadata:
+                try:
+                    upload_metadata_json = json.dumps(metadata)
+                except (TypeError, ValueError) as e:
+                    logger.warning(f"Could not serialize metadata for file {filename}: {e}")
+            
             stored_file = StoredFile(
                 id=file_id,
                 user_id=user.id,
@@ -287,6 +310,9 @@ class FileStorageService:
                 file_size=file_size,
                 content_type=content_type,
                 file_hash=file_hash,
+                batch_id=metadata.get('batch_id') if metadata else None,
+                upload_metadata=upload_metadata_json,
+                processing_status="completed",
                 uploaded_at=datetime.utcnow()
             )
             
@@ -311,6 +337,277 @@ class FileStorageService:
                 f"Unexpected error during file upload: {str(e)}",
                 error_code="UPLOAD_ERROR"
             )
+    
+    async def upload_multiple_files(
+        self,
+        files: List[UploadFile],
+        user: User,
+        db: Session,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> BatchUploadResult:
+        """
+        Upload multiple files concurrently with proper error isolation and batch tracking.
+        
+        This method implements:
+        - Concurrent processing of multiple files
+        - Error isolation for batch operations
+        - Batch tracking and metadata management
+        - Background job queuing for code analysis
+        
+        Args:
+            files: List of files to upload
+            user: The user uploading the files
+            db: Database session
+            metadata: Optional additional metadata applied to all files
+            
+        Returns:
+            BatchUploadResult with detailed results for each file
+            
+        Raises:
+            FileStorageError: If batch validation fails
+        """
+        try:
+            # Validate batch constraints
+            if not files:
+                raise FileStorageError(
+                    "No files provided for upload",
+                    error_code="NO_FILES_PROVIDED"
+                )
+            
+            if len(files) > 10:  # Enforce batch size limit
+                raise FileStorageError(
+                    f"Too many files in batch. Maximum 10 files allowed, got {len(files)}",
+                    error_code="BATCH_SIZE_EXCEEDED",
+                    details={"file_count": len(files), "max_allowed": 10}
+                )
+            
+            # Generate batch ID for tracking
+            batch_id = str(uuid.uuid4())
+            batch_metadata = metadata or {}
+            batch_metadata.update({
+                "batch_id": batch_id,
+                "batch_upload": True,
+                "total_files": len(files),
+                "upload_timestamp": datetime.utcnow().isoformat()
+            })
+            
+            logger.info(f"Starting batch upload {batch_id} with {len(files)} files for user {user.id}")
+            
+            # Process files concurrently with error_isolation
+            upload_tasks = []
+            for i, file in enumerate(files):
+                # Create file-specific metadata
+                file_metadata = batch_metadata.copy()
+                file_metadata.update({
+                    "file_index": i,
+                    "batch_position": i + 1
+                })
+                
+                # Create upload task with error isolation
+                task = self._upload_single_file_with_isolation(
+                    file=file,
+                    user=user,
+                    db=db,
+                    metadata=file_metadata,
+                    file_index=i
+                )
+                upload_tasks.append(task)
+            
+            # Execute all uploads concurrently
+            upload_results = await asyncio.gather(*upload_tasks, return_exceptions=True)
+            
+            # Process results and separate successful from failed uploads
+            uploaded_files = []
+            failed_files = []
+            analysis_job_ids = []
+            
+            for i, result in enumerate(upload_results):
+                if isinstance(result, Exception):
+                    # Handle upload failure
+                    error_info = self._extract_error_info(result, files[i])
+                    failed_files.append(error_info)
+                    logger.warning(f"File upload failed in batch {batch_id}: {error_info}")
+                elif isinstance(result, FileUploadResult):
+                    # Handle successful upload
+                    uploaded_files.append(result)
+                    
+                    # Queue background analysis job for uploaded file
+                    try:
+                        job_id = await self._queue_analysis_job(result, user, batch_id)
+                        if job_id:
+                            analysis_job_ids.append(job_id)
+                    except Exception as analysis_error:
+                        logger.warning(f"Failed to queue analysis job for file {result.file_id}: {analysis_error}")
+                else:
+                    # Unexpected result type
+                    failed_files.append({
+                        "filename": files[i].filename if i < len(files) else "unknown",
+                        "error_code": "UNEXPECTED_RESULT",
+                        "error_message": f"Unexpected result type: {type(result)}",
+                        "details": {"result_type": str(type(result))}
+                    })
+            
+            # Create batch result
+            batch_result = BatchUploadResult(
+                batch_id=batch_id,
+                uploaded_files=uploaded_files,
+                failed_files=failed_files,
+                total_files=len(files),
+                successful_uploads=len(uploaded_files),
+                failed_uploads=len(failed_files),
+                analysis_job_ids=analysis_job_ids
+            )
+            
+            logger.info(
+                f"Batch upload {batch_id} completed: "
+                f"{len(uploaded_files)} successful, {len(failed_files)} failed, "
+                f"{len(analysis_job_ids)} analysis jobs queued"
+            )
+            
+            return batch_result
+            
+        except FileStorageError:
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error during batch upload: {e}")
+            raise FileStorageError(
+                f"Unexpected error during batch upload: {str(e)}",
+                error_code="BATCH_UPLOAD_ERROR"
+            )
+    
+    async def _upload_single_file_with_isolation(
+        self,
+        file: UploadFile,
+        user: User,
+        db: Session,
+        metadata: Dict[str, Any],
+        file_index: int
+    ) -> FileUploadResult:
+        """
+        Upload a single file with error isolation for batch operations.
+        
+        This method wraps the single file upload to provide proper error isolation
+        so that one file failure doesn't affect other files in the batch.
+        """
+        try:
+            # Create a new database session for this file to ensure isolation
+            # Note: In production, you might want to use a session factory here
+            return await self.upload_file(
+                file=file,
+                user=user,
+                db=db,
+                metadata=metadata
+            )
+        except Exception as e:
+            # Re-raise with additional context for batch processing
+            raise FileStorageError(
+                f"File upload failed at index {file_index}: {str(e)}",
+                error_code=getattr(e, 'error_code', 'UPLOAD_ERROR'),
+                details={
+                    "file_index": file_index,
+                    "filename": getattr(file, 'filename', 'unknown'),
+                    "original_error": str(e),
+                    **getattr(e, 'details', {})
+                }
+            )
+    
+    def _extract_error_info(self, error: Exception, file: UploadFile) -> Dict[str, Any]:
+        """
+        Extract error information from an exception for batch result reporting.
+        """
+        if isinstance(error, FileStorageError):
+            return {
+                "filename": getattr(file, 'filename', 'unknown'),
+                "error_code": error.error_code,
+                "error_message": error.message,
+                "details": error.details
+            }
+        else:
+            return {
+                "filename": getattr(file, 'filename', 'unknown'),
+                "error_code": "UNEXPECTED_ERROR",
+                "error_message": str(error),
+                "details": {"exception_type": type(error).__name__}
+            }
+    
+    async def _queue_analysis_job(
+        self,
+        upload_result: FileUploadResult,
+        user: User,
+        batch_id: str
+    ) -> Optional[str]:
+        """
+        Queue a background analysis job for an uploaded file.
+        
+        This method queues code analysis jobs instead of performing synchronous processing,
+        improving upload performance and user experience.
+        """
+        try:
+            # Import here to avoid circular imports
+            from app.services.background_job_service import background_job_service, JobPriority
+            
+            # Prepare job metadata
+            job_metadata = {
+                "file_id": upload_result.file_id,
+                "filename": upload_result.filename,
+                "file_size": upload_result.file_size,
+                "content_type": upload_result.content_type,
+                "batch_id": batch_id,
+                "upload_timestamp": upload_result.uploaded_at.isoformat()
+            }
+            
+            # Determine job priority based on file type and size
+            priority = self._determine_analysis_priority(upload_result)
+            
+            # Queue the analysis job
+            job_id = await background_job_service.enqueue_job(
+                job_name="file_code_analysis",
+                args=[upload_result.file_id],
+                kwargs={
+                    "analysis_type": "full",
+                    "batch_id": batch_id
+                },
+                priority=priority,
+                user_id=str(user.id),
+                metadata=job_metadata,
+                timeout=1800,  # 30 minutes timeout for analysis
+                max_retries=2
+            )
+            
+            logger.info(f"Queued analysis job {job_id} for file {upload_result.file_id}")
+            return job_id
+            
+        except Exception as e:
+            logger.error(f"Failed to queue analysis job for file {upload_result.file_id}: {e}")
+            return None
+    
+    def _determine_analysis_priority(self, upload_result: FileUploadResult) -> 'JobPriority':
+        """
+        Determine the analysis job priority based on file characteristics.
+        """
+        try:
+            from app.services.background_job_service import JobPriority
+            
+            # Priority based on file type
+            code_extensions = {'.py', '.js', '.ts', '.java', '.cpp', '.c', '.cs', '.go', '.rs'}
+            config_extensions = {'.json', '.yaml', '.yml', '.xml', '.toml'}
+            
+            file_ext = Path(upload_result.filename).suffix.lower()
+            
+            # High priority for code files
+            if file_ext in code_extensions:
+                return JobPriority.HIGH
+            
+            # Normal priority for config files
+            if file_ext in config_extensions:
+                return JobPriority.NORMAL
+            
+            # Low priority for other files
+            return JobPriority.LOW
+            
+        except ImportError:
+            # Fallback if background job service is not available
+            return None
     
     async def download_file(
         self, 

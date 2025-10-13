@@ -45,6 +45,11 @@ class OAuthCallbackResponse(BaseModel):
     redirect_url: Optional[str] = None
 
 
+class OAuthCompleteRequest(BaseModel):
+    """Request to complete OAuth integration."""
+    result_id: str = Field(..., description="OAuth result ID from callback")
+
+
 class RepositoryCreateRequest(BaseModel):
     """Request to connect a GitHub repository."""
     repo_url: HttpUrl = Field(..., description="GitHub repository URL")
@@ -75,7 +80,7 @@ class GitHubRepositoryResponse(BaseModel):
     webhook_id: Optional[str] = None
     webhook_status: str = "active"
     repository_settings: Dict[str, Any]
-    permissions: Dict[str, str]
+    permissions: Dict[str, bool]  # Changed from str to bool
     created_at: datetime
     updated_at: datetime
     
@@ -135,6 +140,7 @@ class PRAnalysisResponse(BaseModel):
     issues_found: int
     errors_count: int
     warnings_count: int
+    created_at: datetime
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None
@@ -148,12 +154,11 @@ class PRAnalysisResponse(BaseModel):
 
 class WebhookEventResponse(BaseModel):
     """Webhook event processing response."""
-    status: str
-    message: str
-    event_type: Optional[str] = None
-    repository: Optional[str] = None
-    pr_number: Optional[int] = None
-    analysis_triggered: bool = False
+    event_id: str = Field(..., description="Unique event identifier")
+    event_type: str = Field(..., description="GitHub event type")
+    status: str = Field(..., description="Processing status")
+    message: str = Field(..., description="Processing message")
+    queued_jobs: List[str] = Field(default_factory=list, description="List of queued job IDs")
 
 
 class RepositoryListResponse(BaseModel):

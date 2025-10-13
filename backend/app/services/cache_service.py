@@ -49,11 +49,7 @@ class CacheService:
                 redis_config = cache_config.get_redis_config()
                 self.redis_client = redis.from_url(
                     redis_config['url'],
-                    max_connections=redis_config['max_connections'],
-                    socket_timeout=redis_config['socket_timeout'],
-                    socket_connect_timeout=redis_config['connection_timeout'],
-                    retry_on_timeout=redis_config['retry_on_timeout'],
-                    decode_responses=redis_config['decode_responses']
+                    decode_responses=False  # Keep as bytes for JSON handling
                 )
             
             # Test connection

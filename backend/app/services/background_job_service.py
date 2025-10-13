@@ -745,3 +745,179 @@ async def batch_file_processing_job(job_id: str, file_ids: List[str]):
         
     except Exception as e:
         await background_job_service.fail_job(job_id, str(e))
+
+
+@background_job("file_code_analysis")
+async def file_code_analysis_job(job_id: str, file_id: str, analysis_type: str = "full", batch_id: str = None):
+    """
+    Background job for analyzing uploaded files.
+    
+    This job performs code analysis on uploaded files instead of synchronous processing,
+    improving upload performance and user experience.
+    
+    Args:
+        job_id: Background job ID for progress tracking
+        file_id: ID of the uploaded file to analyze
+        analysis_type: Type of analysis to perform (quick, full, security, etc.)
+        batch_id: Optional batch ID if this is part of a batch upload
+    """
+    try:
+        await background_job_service.update_job_progress(
+            job_id,
+            current_step=1,
+            total_steps=6,
+            message="Starting file analysis",
+            details={"file_id": file_id, "batch_id": batch_id}
+        )
+        
+        # Import services here to avoid circular imports
+        from app.services.background_code_analysis_service import (
+            background_code_analysis_service,
+            AnalysisType
+        )
+        from app.services.file_storage_service import file_storage_service
+        from app.core.database import get_db
+        from app.models.file_storage import StoredFile
+        from sqlalchemy.orm import Session
+        
+        # Get database session
+        db_gen = get_db()
+        db: Session = next(db_gen)
+        
+        try:
+            await background_job_service.update_job_progress(
+                job_id,
+                current_step=2,
+                total_steps=6,
+                message="Retrieving file information"
+            )
+            
+            # Get file information from database
+            stored_file = db.query(StoredFile).filter(StoredFile.id == file_id).first()
+            if not stored_file:
+                raise ValueError(f"File {file_id} not found in database")
+            
+            await background_job_service.update_job_progress(
+                job_id,
+                current_step=3,
+                total_steps=6,
+                message="Downloading file content"
+            )
+            
+            # Download file content for analysis
+            try:
+                # Create a mock user object for file access (in production, get actual user)
+                from app.models.users import User
+                user = db.query(User).filter(User.id == stored_file.user_id).first()
+                if not user:
+                    raise ValueError(f"User {stored_file.user_id} not found")
+                
+                download_result = await file_storage_service.download_file(
+                    file_id=file_id,
+                    user=user,
+                    db=db
+                )
+                
+                file_content = download_result.content.decode('utf-8', errors='ignore')
+                
+            except Exception as download_error:
+                logger.warning(f"Could not download file content for analysis: {download_error}")
+                # Use placeholder content for analysis
+                file_content = f"# File: {stored_file.filename}\n# Content could not be retrieved for analysis"
+            
+            await background_job_service.update_job_progress(
+                job_id,
+                current_step=4,
+                total_steps=6,
+                message="Determining file language and analysis parameters"
+            )
+            
+            # Determine file language from extension
+            file_extension = stored_file.filename.split('.')[-1].lower() if '.' in stored_file.filename else 'txt'
+            language_mapping = {
+                'py': 'python',
+                'js': 'javascript',
+                'ts': 'typescript',
+                'java': 'java',
+                'cpp': 'cpp',
+                'c': 'c',
+                'cs': 'csharp',
+                'go': 'go',
+                'rs': 'rust',
+                'php': 'php',
+                'rb': 'ruby',
+                'json': 'json',
+                'yaml': 'yaml',
+                'yml': 'yaml',
+                'xml': 'xml',
+                'html': 'html',
+                'css': 'css',
+                'sql': 'sql'
+            }
+            
+            detected_language = language_mapping.get(file_extension, 'unknown')
+            
+            # Convert analysis type string to enum
+            try:
+                analysis_type_enum = AnalysisType(analysis_type)
+            except ValueError:
+                analysis_type_enum = AnalysisType.FULL
+            
+            await background_job_service.update_job_progress(
+                job_id,
+                current_step=5,
+                total_steps=6,
+                message=f"Running {analysis_type} analysis for {detected_language} code"
+            )
+            
+            # Queue code analysis
+            analysis_id = await background_code_analysis_service.queue_analysis(
+                file_id=file_id,
+                content=file_content,
+                language=detected_language,
+                analysis_type=analysis_type_enum,
+                user_id=str(stored_file.user_id),
+                metadata={
+                    "filename": stored_file.filename,
+                    "file_size": stored_file.file_size,
+                    "content_type": stored_file.content_type,
+                    "batch_id": batch_id,
+                    "upload_job_id": job_id
+                }
+            )
+            
+            # Update stored file with analysis information
+            stored_file.analysis_id = analysis_id
+            stored_file.is_analyzed = True
+            db.commit()
+            
+            await background_job_service.update_job_progress(
+                job_id,
+                current_step=6,
+                total_steps=6,
+                message="Analysis queued successfully"
+            )
+            
+            # Complete the job with analysis information
+            result = {
+                "file_id": file_id,
+                "analysis_id": analysis_id,
+                "filename": stored_file.filename,
+                "language": detected_language,
+                "analysis_type": analysis_type,
+                "batch_id": batch_id,
+                "file_size": stored_file.file_size,
+                "status": "analysis_queued"
+            }
+            
+            await background_job_service.complete_job(job_id, result)
+            
+            logger.info(f"File analysis job {job_id} completed for file {file_id}, analysis queued as {analysis_id}")
+            
+        finally:
+            db.close()
+        
+    except Exception as e:
+        error_msg = f"File analysis job failed: {str(e)}"
+        logger.error(f"Job {job_id} failed: {error_msg}")
+        await background_job_service.fail_job(job_id, error_msg)

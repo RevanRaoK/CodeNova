@@ -18,6 +18,7 @@ from app.core.database import get_db
 from app.api.v1.endpoints.auth import get_current_active_user
 from app.models.users import User
 from app.services.file_storage_service import file_storage_service, FileStorageError
+from app.services.background_job_service import background_job_service, JobStatus
 from pydantic import BaseModel, Field
 import logging
 
@@ -59,6 +60,38 @@ class SignedUrlResponse(BaseModel):
     """Response model for signed URL generation"""
     signed_url: str = Field(description="Temporary signed URL for file access")
     expires_in_hours: int = Field(description="URL expiration time in hours")
+
+
+class AnalysisJobStatusResponse(BaseModel):
+    """Response model for analysis job status"""
+    job_id: str = Field(description="Analysis job ID")
+    status: JobStatus = Field(description="Current job status")
+    progress: dict = Field(description="Job progress information")
+    created_at: str = Field(description="Job creation timestamp")
+    started_at: Optional[str] = Field(description="Job start timestamp")
+    completed_at: Optional[str] = Field(description="Job completion timestamp")
+    result: Optional[dict] = Field(description="Analysis result (if completed)")
+    error: Optional[str] = Field(description="Error message (if failed)")
+    file_id: Optional[str] = Field(description="Associated file ID")
+    metadata: dict = Field(description="Additional job metadata")
+
+
+class BatchAnalysisStatusResponse(BaseModel):
+    """Response model for batch analysis job status"""
+    batch_id: Optional[str] = Field(description="Batch ID for related jobs")
+    total_jobs: int = Field(description="Total number of analysis jobs")
+    jobs: List[AnalysisJobStatusResponse] = Field(description="Individual job statuses")
+    summary: dict = Field(description="Status summary by job state")
+
+
+class AnalysisResultResponse(BaseModel):
+    """Response model for analysis results"""
+    job_id: str = Field(description="Analysis job ID")
+    file_id: str = Field(description="Analyzed file ID")
+    analysis_type: str = Field(description="Type of analysis performed")
+    result: dict = Field(description="Analysis result data")
+    completed_at: str = Field(description="Analysis completion timestamp")
+    metadata: dict = Field(description="Additional result metadata")
 
 
 @router.post("/upload", response_model=FileUploadResponse)
@@ -132,12 +165,14 @@ async def upload_file(
 
 
 class MultipleFileUploadResponse(BaseModel):
-    """Response model for multiple file upload"""
+    """Response model for multiple file upload with enhanced batch processing"""
     uploaded_files: List[FileUploadResponse] = Field(description="List of successfully uploaded files")
     failed_files: List[dict] = Field(description="List of files that failed to upload")
     total_files: int = Field(description="Total number of files processed")
     successful_uploads: int = Field(description="Number of successful uploads")
     failed_uploads: int = Field(description="Number of failed uploads")
+    batch_id: Optional[str] = Field(description="Batch ID for tracking related uploads")
+    analysis_job_ids: List[str] = Field(default=[], description="Background job IDs for code analysis")
 
 
 @router.post("/upload-multiple", response_model=MultipleFileUploadResponse)
@@ -148,63 +183,126 @@ async def upload_multiple_files(
     db: Session = Depends(get_db)
 ):
     """
-    Upload multiple files to Digital Ocean Spaces with metadata storage.
+    Upload multiple files to Digital Ocean Spaces with enhanced batch processing.
+    
+    This endpoint now supports:
+    - File count and size validation (max 10 files, configurable size limits)
+    - Concurrent file processing for better performance
+    - Proper error isolation for batch operations
+    - Background job queuing for code analysis
+    - Batch tracking and metadata management
+    - Immediate response with job IDs for background analysis
     
     Args:
-        files: List of files to upload
+        files: List of files to upload (max 10 files)
         metadata: Optional JSON string with additional metadata (applied to all files)
         current_user: Authenticated user
         db: Database session
         
     Returns:
-        MultipleFileUploadResponse with upload results for each file
+        MultipleFileUploadResponse with detailed upload results and analysis job IDs
+        
+    Raises:
+        HTTPException: For validation errors, file limits, or upload failures
     """
-    if not files:
-        raise HTTPException(
-            status_code=400,
-            detail="No files provided for upload"
-        )
-    
-    if len(files) > 10:  # Limit to 10 files per request
-        raise HTTPException(
-            status_code=400,
-            detail="Too many files. Maximum 10 files per request."
-        )
-    
-    # Parse metadata if provided
-    file_metadata = {}
-    if metadata:
-        import json
-        try:
-            file_metadata = json.loads(metadata)
-        except json.JSONDecodeError:
+    try:
+        # Validate file count
+        if not files:
             raise HTTPException(
                 status_code=400,
-                detail="Invalid metadata format. Must be valid JSON."
+                detail={
+                    "error": "NO_FILES_PROVIDED",
+                    "message": "No files provided for upload",
+                    "details": {"file_count": 0}
+                }
             )
-    
-    uploaded_files = []
-    failed_files = []
-    
-    for i, file in enumerate(files):
-        try:
-            # Add file index to metadata
-            current_metadata = file_metadata.copy()
-            current_metadata.update({
-                "batch_upload": True,
-                "file_index": i,
-                "total_files": len(files)
-            })
-            
-            # Upload file using the service
-            result = await file_storage_service.upload_file(
-                file=file,
-                user=current_user,
-                db=db,
-                metadata=current_metadata
+        
+        if len(files) > 10:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "BATCH_SIZE_EXCEEDED",
+                    "message": f"Too many files. Maximum 10 files allowed, got {len(files)}",
+                    "details": {"file_count": len(files), "max_allowed": 10}
+                }
             )
+        
+        # Validate individual file sizes and total batch size
+        max_file_size = 50 * 1024 * 1024  # 50MB per file
+        max_batch_size = 200 * 1024 * 1024  # 200MB total batch
+        total_size = 0
+        oversized_files = []
+        
+        for i, file in enumerate(files):
+            # Reset file position to get accurate size
+            await file.seek(0)
+            file_content = await file.read()
+            file_size = len(file_content)
+            await file.seek(0)  # Reset for actual upload
             
-            uploaded_files.append(FileUploadResponse(
+            total_size += file_size
+            
+            if file_size > max_file_size:
+                oversized_files.append({
+                    "filename": file.filename,
+                    "size": file_size,
+                    "max_allowed": max_file_size
+                })
+        
+        if oversized_files:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "FILE_SIZE_EXCEEDED",
+                    "message": "One or more files exceed the maximum size limit",
+                    "details": {
+                        "oversized_files": oversized_files,
+                        "max_file_size_mb": max_file_size / (1024 * 1024)
+                    }
+                }
+            )
+        
+        if total_size > max_batch_size:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "BATCH_SIZE_EXCEEDED",
+                    "message": f"Total batch size exceeds limit. Got {total_size / (1024 * 1024):.1f}MB, max allowed {max_batch_size / (1024 * 1024)}MB",
+                    "details": {
+                        "total_size": total_size,
+                        "max_batch_size": max_batch_size,
+                        "file_count": len(files)
+                    }
+                }
+            )
+        
+        # Parse metadata if provided
+        file_metadata = {}
+        if metadata:
+            import json
+            try:
+                file_metadata = json.loads(metadata)
+            except json.JSONDecodeError:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "INVALID_METADATA",
+                        "message": "Invalid metadata format. Must be valid JSON.",
+                        "details": {"provided_metadata": metadata}
+                    }
+                )
+        
+        # Use enhanced batch upload service
+        batch_result = await file_storage_service.upload_multiple_files(
+            files=files,
+            user=current_user,
+            db=db,
+            metadata=file_metadata
+        )
+        
+        # Convert service result to API response format
+        uploaded_files = [
+            FileUploadResponse(
                 file_id=result.file_id,
                 filename=result.filename,
                 file_size=result.file_size,
@@ -212,30 +310,57 @@ async def upload_multiple_files(
                 spaces_url=result.spaces_url,
                 file_hash=result.file_hash,
                 uploaded_at=result.uploaded_at
-            ))
-            
-        except FileStorageError as e:
-            failed_files.append({
-                "filename": file.filename,
-                "error_code": e.error_code,
-                "error_message": e.message,
+            )
+            for result in batch_result.uploaded_files
+        ]
+        
+        # Log successful upload for monitoring
+        logger.info(f"Multiple file upload completed for user {current_user.id}: {batch_result.successful_uploads}/{batch_result.total_files} files uploaded, batch_id: {batch_result.batch_id}")
+        
+        return MultipleFileUploadResponse(
+            uploaded_files=uploaded_files,
+            failed_files=batch_result.failed_files,
+            total_files=batch_result.total_files,
+            successful_uploads=batch_result.successful_uploads,
+            failed_uploads=batch_result.failed_uploads,
+            batch_id=batch_result.batch_id,
+            analysis_job_ids=batch_result.analysis_job_ids
+        )
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except FileStorageError as e:
+        # Map service errors to appropriate HTTP status codes
+        status_code_mapping = {
+            "NO_FILES_PROVIDED": 400,
+            "BATCH_SIZE_EXCEEDED": 400,
+            "INVALID_FILE_TYPE": 400,
+            "FILE_TOO_LARGE": 400,
+            "UPLOAD_FAILED": 500,
+            "STORAGE_ERROR": 500
+        }
+        
+        status_code = status_code_mapping.get(e.error_code, 500)
+        
+        raise HTTPException(
+            status_code=status_code,
+            detail={
+                "error": e.error_code,
+                "message": e.message,
                 "details": e.details
-            })
-        except Exception as e:
-            failed_files.append({
-                "filename": file.filename,
-                "error_code": "UNEXPECTED_ERROR",
-                "error_message": str(e),
-                "details": {}
-            })
-    
-    return MultipleFileUploadResponse(
-        uploaded_files=uploaded_files,
-        failed_files=failed_files,
-        total_files=len(files),
-        successful_uploads=len(uploaded_files),
-        failed_uploads=len(failed_files)
-    )
+            }
+        )
+    except Exception as e:
+        logger.error(f"Multiple file upload failed for user {current_user.id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "UPLOAD_ERROR",
+                "message": "Unexpected error during multiple file upload",
+                "details": {"error_type": type(e).__name__, "error_message": str(e)}
+            }
+        )
 
 
 
@@ -542,4 +667,303 @@ async def get_storage_info(
         raise HTTPException(
             status_code=500,
             detail=f"Error getting storage info: {str(e)}"
+        )
+
+# Analysis Job Status Endpoints
+
+@router.get("/analysis/job/{job_id}", response_model=AnalysisJobStatusResponse)
+async def get_analysis_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the status of a specific analysis job.
+    
+    Args:
+        job_id: The analysis job ID
+        current_user: Authenticated user
+        db: Database session
+        
+    Returns:
+        AnalysisJobStatusResponse with job status and progress
+        
+    Raises:
+        HTTPException: If job not found or access denied
+    """
+    try:
+        job_status = await background_job_service.get_job_status(
+            job_id=job_id,
+            user=current_user,
+            db=db
+        )
+        
+        return AnalysisJobStatusResponse(
+            job_id=job_status.job_id,
+            status=job_status.status,
+            progress=job_status.progress,
+            created_at=job_status.created_at.isoformat(),
+            started_at=job_status.started_at.isoformat() if job_status.started_at else None,
+            completed_at=job_status.completed_at.isoformat() if job_status.completed_at else None,
+            result=job_status.result,
+            error=job_status.error,
+            file_id=job_status.file_id,
+            metadata=job_status.metadata
+        )
+        
+    except Exception as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "JOB_NOT_FOUND",
+                    "message": f"Analysis job {job_id} not found",
+                    "details": {"job_id": job_id}
+                }
+            )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting job status: {str(e)}"
+        )
+
+
+@router.get("/analysis/jobs", response_model=List[AnalysisJobStatusResponse])
+async def list_analysis_jobs(
+    status: Optional[JobStatus] = Query(None, description="Filter by job status"),
+    file_id: Optional[str] = Query(None, description="Filter by file ID"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of jobs to return"),
+    offset: int = Query(0, ge=0, description="Number of jobs to skip"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List analysis jobs for the current user with optional filtering.
+    
+    Args:
+        status: Optional status filter
+        file_id: Optional file ID filter
+        limit: Maximum number of jobs to return (1-100)
+        offset: Number of jobs to skip for pagination
+        current_user: Authenticated user
+        db: Database session
+        
+    Returns:
+        List of AnalysisJobStatusResponse objects
+    """
+    try:
+        jobs = await background_job_service.list_user_jobs(
+            user=current_user,
+            db=db,
+            status=status,
+            file_id=file_id,
+            limit=limit,
+            offset=offset
+        )
+        
+        return [
+            AnalysisJobStatusResponse(
+                job_id=job.job_id,
+                status=job.status,
+                progress=job.progress,
+                created_at=job.created_at.isoformat(),
+                started_at=job.started_at.isoformat() if job.started_at else None,
+                completed_at=job.completed_at.isoformat() if job.completed_at else None,
+                result=job.result,
+                error=job.error,
+                file_id=job.file_id,
+                metadata=job.metadata
+            )
+            for job in jobs
+        ]
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error listing analysis jobs: {str(e)}"
+        )
+
+
+@router.get("/analysis/batch/{batch_id}", response_model=BatchAnalysisStatusResponse)
+async def get_batch_analysis_status(
+    batch_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the status of all jobs in a batch analysis.
+    
+    Args:
+        batch_id: The batch ID from multiple file upload
+        current_user: Authenticated user
+        db: Database session
+        
+    Returns:
+        BatchAnalysisStatusResponse with all job statuses and summary
+        
+    Raises:
+        HTTPException: If batch not found or access denied
+    """
+    try:
+        batch_status = await background_job_service.get_batch_status(
+            batch_id=batch_id,
+            user=current_user,
+            db=db
+        )
+        
+        jobs = [
+            AnalysisJobStatusResponse(
+                job_id=job.job_id,
+                status=job.status,
+                progress=job.progress,
+                created_at=job.created_at.isoformat(),
+                started_at=job.started_at.isoformat() if job.started_at else None,
+                completed_at=job.completed_at.isoformat() if job.completed_at else None,
+                result=job.result,
+                error=job.error,
+                file_id=job.file_id,
+                metadata=job.metadata
+            )
+            for job in batch_status.jobs
+        ]
+        
+        return BatchAnalysisStatusResponse(
+            batch_id=batch_id,
+            total_jobs=batch_status.total_jobs,
+            jobs=jobs,
+            summary=batch_status.summary
+        )
+        
+    except Exception as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "BATCH_NOT_FOUND",
+                    "message": f"Batch {batch_id} not found",
+                    "details": {"batch_id": batch_id}
+                }
+            )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting batch status: {str(e)}"
+        )
+
+
+@router.get("/analysis/result/{job_id}", response_model=AnalysisResultResponse)
+async def get_analysis_result(
+    job_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the detailed analysis result for a completed job.
+    
+    Args:
+        job_id: The analysis job ID
+        current_user: Authenticated user
+        db: Database session
+        
+    Returns:
+        AnalysisResultResponse with detailed analysis results
+        
+    Raises:
+        HTTPException: If job not found, not completed, or access denied
+    """
+    try:
+        result = await background_job_service.get_job_result(
+            job_id=job_id,
+            user=current_user,
+            db=db
+        )
+        
+        return AnalysisResultResponse(
+            job_id=result.job_id,
+            file_id=result.file_id,
+            analysis_type=result.analysis_type,
+            result=result.result,
+            completed_at=result.completed_at.isoformat(),
+            metadata=result.metadata
+        )
+        
+    except Exception as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "JOB_NOT_FOUND",
+                    "message": f"Analysis job {job_id} not found",
+                    "details": {"job_id": job_id}
+                }
+            )
+        elif "not completed" in str(e).lower():
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "JOB_NOT_COMPLETED",
+                    "message": f"Analysis job {job_id} is not yet completed",
+                    "details": {"job_id": job_id}
+                }
+            )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting analysis result: {str(e)}"
+        )
+
+
+@router.delete("/analysis/job/{job_id}")
+async def cancel_analysis_job(
+    job_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Cancel a running or queued analysis job.
+    
+    Args:
+        job_id: The analysis job ID to cancel
+        current_user: Authenticated user
+        db: Database session
+        
+    Returns:
+        Success message with cancellation details
+        
+    Raises:
+        HTTPException: If job not found, already completed, or access denied
+    """
+    try:
+        success = await background_job_service.cancel_job(
+            job_id=job_id,
+            user=current_user,
+            db=db
+        )
+        
+        if success:
+            return {
+                "message": "Analysis job cancelled successfully",
+                "job_id": job_id,
+                "cancelled_at": datetime.utcnow().isoformat()
+            }
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "CANCELLATION_FAILED",
+                    "message": "Job could not be cancelled (may already be completed)",
+                    "details": {"job_id": job_id}
+                }
+            )
+        
+    except Exception as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "JOB_NOT_FOUND",
+                    "message": f"Analysis job {job_id} not found",
+                    "details": {"job_id": job_id}
+                }
+            )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error cancelling analysis job: {str(e)}"
         )
