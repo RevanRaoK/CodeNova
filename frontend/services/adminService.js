@@ -206,20 +206,249 @@ class AdminService {
   }
 
   /**
+   * Get dashboard metrics including reviews completed today
+   * @returns {Promise<Object>} Dashboard metrics
+   */
+  async getDashboardMetrics() {
+    try {
+      const response = await httpClient.get('/admin/analytics/dashboard-metrics');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch dashboard metrics:', error);
+      throw this.handleAdminError(error);
+    }
+  }
+
+  /**
    * Get platform statistics
    * @param {Object} options - Query options
    * @param {string} options.dateRange - Date range for statistics (7d, 30d, 90d)
+   * @param {string} options.teamId - Optional team ID to filter by
    * @returns {Promise<Object>} Platform statistics
    */
   async getPlatformStats(options = {}) {
     try {
       const params = new URLSearchParams();
       if (options.dateRange) params.append('date_range', options.dateRange);
+      if (options.teamId) params.append('team_id', options.teamId);
 
-      const response = await httpClient.get(`/admin/stats?${params.toString()}`);
+      const response = await httpClient.get(`/admin/analytics/platform?${params.toString()}`);
       return response.data;
     } catch (error) {
       console.error('Failed to fetch platform stats:', error);
+      throw this.handleAdminError(error);
+    }
+  }
+
+  /**
+   * Get user details by ID
+   * @param {string} userId - User ID
+   * @returns {Promise<Object>} User details
+   */
+  async getUserDetails(userId) {
+    try {
+      const response = await httpClient.get(`/admin/users/${userId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch user details:', error);
+      throw this.handleAdminError(error);
+    }
+  }
+
+  /**
+   * Update user status (active/inactive)
+   * @param {string} userId - User ID
+   * @param {boolean} isActive - Active status
+   * @returns {Promise<Object>} Updated user data
+   */
+  async updateUserStatus(userId, isActive) {
+    try {
+      const response = await httpClient.put(`/admin/users/${userId}/status`, {
+        is_active: isActive
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to update user status:', error);
+      throw this.handleAdminError(error);
+    }
+  }
+
+  /**
+   * Assign user to team
+   * @param {string} userId - User ID
+   * @param {string} teamId - Team ID
+   * @returns {Promise<Object>} Updated user data
+   */
+  async assignUserToTeam(userId, teamId) {
+    try {
+      const response = await httpClient.put(`/admin/users/${userId}/team/${teamId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to assign user to team:', error);
+      throw this.handleAdminError(error);
+    }
+  }
+
+  /**
+   * Remove user from team
+   * @param {string} userId - User ID
+   * @returns {Promise<Object>} Updated user data
+   */
+  async removeUserFromTeam(userId) {
+    try {
+      const response = await httpClient.put(`/admin/users/${userId}/team`, {
+        team_id: null
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to remove user from team:', error);
+      throw this.handleAdminError(error);
+    }
+  }
+
+  /**
+   * Get team details by ID
+   * @param {string} teamId - Team ID
+   * @returns {Promise<Object>} Team details
+   */
+  async getTeamDetails(teamId) {
+    try {
+      const response = await httpClient.get(`/admin/teams/${teamId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch team details:', error);
+      throw this.handleAdminError(error);
+    }
+  }
+
+  /**
+   * Get team members
+   * @param {string} teamId - Team ID
+   * @param {Object} options - Query options
+   * @returns {Promise<Object>} Team members list
+   */
+  async getTeamMembers(teamId, options = {}) {
+    try {
+      const params = new URLSearchParams();
+      if (options.page) params.append('page', options.page);
+      if (options.limit) params.append('limit', options.limit);
+
+      const response = await httpClient.get(`/admin/teams/${teamId}/members?${params.toString()}`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch team members:', error);
+      throw this.handleAdminError(error);
+    }
+  }
+
+  /**
+   * Get global trends data
+   * @param {Object} options - Query options
+   * @param {string} options.dateRange - Date range for trends (7d, 30d, 90d)
+   * @param {string} options.teamId - Optional team ID filter
+   * @returns {Promise<Object>} Global trends data
+   */
+  async getGlobalTrends(options = {}) {
+    try {
+      const params = new URLSearchParams();
+      if (options.dateRange) params.append('timeframe', options.dateRange);
+      if (options.teamId) params.append('team_id', options.teamId);
+
+      const response = await httpClient.get(`/admin/analytics/global-trends?${params.toString()}`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch global trends:', error);
+      throw this.handleAdminError(error);
+    }
+  }
+
+  /**
+   * Get all reviews across the platform
+   * @param {Object} options - Query options
+   * @param {number} options.page - Page number
+   * @param {number} options.page_size - Items per page
+   * @param {string} options.team_id - Filter by team
+   * @param {string} options.user_id - Filter by user
+   * @param {string} options.date_from - Start date
+   * @param {string} options.date_to - End date
+   * @param {string} options.search - Search term
+   * @param {string} options.sort_by - Sort field
+   * @param {string} options.sort_order - Sort order (asc/desc)
+   * @returns {Promise<Object>} Reviews data with pagination
+   */
+  async getAllReviews(options = {}) {
+    try {
+      const params = new URLSearchParams();
+      
+      if (options.page) params.append('page', options.page);
+      if (options.page_size) params.append('page_size', options.page_size);
+      if (options.team_id) params.append('team_id', options.team_id);
+      if (options.user_id) params.append('user_id', options.user_id);
+      if (options.date_from) params.append('date_from', options.date_from);
+      if (options.date_to) params.append('date_to', options.date_to);
+      if (options.search) params.append('search', options.search);
+      if (options.sort_by) params.append('sort_by', options.sort_by);
+      if (options.sort_order) params.append('sort_order', options.sort_order);
+
+      const response = await httpClient.get(`/admin/analytics/all-reviews?${params.toString()}`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch all reviews:', error);
+      throw this.handleAdminError(error);
+    }
+  }
+
+  /**
+   * Get all feedback across the platform
+   * @param {Object} options - Query options
+   * @param {number} options.page - Page number
+   * @param {number} options.page_size - Items per page
+   * @param {string} options.team_id - Filter by team
+   * @param {string} options.feedback_type - Filter by type (accept/reject/modify)
+   * @param {string} options.date_from - Start date
+   * @param {string} options.date_to - End date
+   * @param {string} options.sort_by - Sort field
+   * @param {string} options.sort_order - Sort order (asc/desc)
+   * @returns {Promise<Object>} Feedback data with pagination
+   */
+  async getAllFeedback(options = {}) {
+    try {
+      const params = new URLSearchParams();
+      
+      if (options.page) params.append('page', options.page);
+      if (options.page_size) params.append('page_size', options.page_size);
+      if (options.team_id) params.append('team_id', options.team_id);
+      if (options.feedback_type) params.append('feedback_type', options.feedback_type);
+      if (options.date_from) params.append('date_from', options.date_from);
+      if (options.date_to) params.append('date_to', options.date_to);
+      if (options.sort_by) params.append('sort_by', options.sort_by);
+      if (options.sort_order) params.append('sort_order', options.sort_order);
+
+      const response = await httpClient.get(`/admin/analytics/all-feedback?${params.toString()}`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch all feedback:', error);
+      throw this.handleAdminError(error);
+    }
+  }
+
+  /**
+   * Get team comparison data
+   * @param {Object} options - Query options
+   * @param {string} options.dateRange - Date range for comparison (7d, 30d, 90d)
+   * @param {string} options.teamId - Optional team ID to filter by
+   * @returns {Promise<Object>} Team comparison data
+   */
+  async getTeamComparison(options = {}) {
+    try {
+      const params = new URLSearchParams();
+      if (options.dateRange) params.append('date_range', options.dateRange);
+      if (options.teamId) params.append('team_id', options.teamId);
+
+      const response = await httpClient.get(`/admin/analytics/team-comparison?${params.toString()}`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch team comparison:', error);
       throw this.handleAdminError(error);
     }
   }

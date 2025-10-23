@@ -83,6 +83,22 @@ class UserService {
      }
 
      /**
+      * Update security settings
+      * @param {string} userId - User ID
+      * @param {Object} securitySettings - Security settings to update
+      * @returns {Promise<Object>} Updated security settings
+      */
+     async updateSecuritySettings(userId, securitySettings) {
+          try {
+               const response = await httpClient.put(`/users/${userId}/security`, securitySettings);
+               return response.data;
+          } catch (error) {
+               console.error('Error updating security settings:', error);
+               throw this.handleUserError(error);
+          }
+     }
+
+     /**
       * Change user password
       * @param {string} userId - User ID
       * @param {Object} passwordData - Password change data
@@ -279,6 +295,67 @@ class UserService {
 
           validation.isValid = Object.values(validation).slice(0, -1).every(Boolean);
           return validation;
+     }
+
+     /**
+      * Get API key status for the user
+      * @param {string} userId - User ID
+      * @returns {Promise<Object>} API key status
+      */
+     async getApiKeyStatus(userId) {
+          try {
+               const response = await httpClient.get(`/users/${userId}/api-key`);
+               return response.data;
+          } catch (error) {
+               console.error('Error fetching API key status:', error);
+               throw this.handleUserError(error);
+          }
+     }
+
+     /**
+      * Save encrypted API key for the user
+      * @param {string} userId - User ID
+      * @param {string} apiKey - API key to save
+      * @returns {Promise<Object>} Save result
+      */
+     async saveApiKey(userId, apiKey) {
+          try {
+               const response = await httpClient.put(`/users/${userId}/api-key`, { apiKey });
+               return response.data;
+          } catch (error) {
+               console.error('Error saving API key:', error);
+               throw this.handleUserError(error);
+          }
+     }
+
+     /**
+      * Delete user's API key
+      * @param {string} userId - User ID
+      * @returns {Promise<Object>} Delete result
+      */
+     async deleteApiKey(userId) {
+          try {
+               const response = await httpClient.delete(`/users/${userId}/api-key`);
+               return response.data;
+          } catch (error) {
+               console.error('Error deleting API key:', error);
+               throw this.handleUserError(error);
+          }
+     }
+
+     /**
+      * Validate API key format
+      * @param {string} apiKey - API key to validate
+      * @returns {Promise<Object>} Validation result
+      */
+     async validateApiKey(apiKey) {
+          try {
+               const response = await httpClient.post('/users/api-key/validate', { apiKey });
+               return response.data;
+          } catch (error) {
+               console.error('Error validating API key:', error);
+               throw this.handleUserError(error);
+          }
      }
 
      /**

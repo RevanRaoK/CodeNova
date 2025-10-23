@@ -1,0 +1,118 @@
+Test Report - Wed Oct 22 07:40:47 PM IST 2025
+================================================================================================
+
+
+================================================================================================
+TEST SUITE: Backend Unit Tests
+================================================================================================
+/home/revan/.local/lib/python3.13/site-packages/pytest_asyncio/plugin.py:208: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts ==============================
+platform linux -- Python 3.13.7, pytest-8.3.4, pluggy-1.5.0 -- /usr/bin/python
+cachedir: .pytest_cache
+rootdir: /home/revan/Documents/PS_PROJECT/CodeNova/backend
+configfile: pytest.ini
+testpaths: tests
+plugins: cov-6.0.0, asyncio-0.24.0, anyio-4.8.0
+asyncio: mode=Mode.STRICT, default_loop_scope=None
+collecting ... collected 345 items
+
+tests/e2e/test_admin_workflows.py::TestAdminTeamManagementWorkflow::test_create_and_manage_team ERROR [  0%]
+
+==================================== ERRORS ====================================
+_ ERROR at setup of TestAdminTeamManagementWorkflow.test_create_and_manage_team _
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/engine/base.py:146: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3302: in raw_connection
+    return self.pool.connect()
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/base.py:449: in connect
+    return _ConnectionFairy._checkout(self)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/base.py:1263: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/base.py:712: in checkout
+    rec = pool._do_get()
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:179: in _do_get
+    with util.safe_reraise():
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:146: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:177: in _do_get
+    return self._create_connection()
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/base.py:390: in _create_connection
+    return _ConnectionRecord(self)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/base.py:674: in __init__
+    self.__connect()
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/base.py:900: in __connect
+    with util.safe_reraise():
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:146: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/base.py:896: in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/engine/create.py:643: in connect
+    return dialect.connect(*cargs, **cparams)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/engine/default.py:621: in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)
+/home/revan/.local/lib/python3.13/site-packages/psycopg2/__init__.py:122: in connect
+    conn = _connect(dsn, connection_factory=connection_factory, **kwasync)
+E   psycopg2.OperationalError: connection to server at "localhost" (::1), port 5432 failed: FATAL:  database "codenova_test_db" does not exist
+
+The above exception was the direct cause of the following exception:
+tests/conftest.py:42: in db_session
+    Base.metadata.create_all(bind=engine)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/sql/schema.py:5868: in create_all
+    bind._run_ddl_visitor(
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3252: in _run_ddl_visitor
+    with self.begin() as conn:
+/usr/lib64/python3.13/contextlib.py:141: in __enter__
+    return next(self.gen)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3242: in begin
+    with self.connect() as conn:
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3278: in connect
+    return self._connection_cls(self)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/engine/base.py:148: in __init__
+    Connection._handle_dbapi_exception_noconnection(
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/engine/base.py:2442: in _handle_dbapi_exception_noconnection
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/engine/base.py:146: in __init__
+    self._dbapi_connection = engine.raw_connection()
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/engine/base.py:3302: in raw_connection
+    return self.pool.connect()
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/base.py:449: in connect
+    return _ConnectionFairy._checkout(self)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/base.py:1263: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/base.py:712: in checkout
+    rec = pool._do_get()
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:179: in _do_get
+    with util.safe_reraise():
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:146: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/impl.py:177: in _do_get
+    return self._create_connection()
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/base.py:390: in _create_connection
+    return _ConnectionRecord(self)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/base.py:674: in __init__
+    self.__connect()
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/base.py:900: in __connect
+    with util.safe_reraise():
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:146: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/pool/base.py:896: in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/engine/create.py:643: in connect
+    return dialect.connect(*cargs, **cparams)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/engine/default.py:621: in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)
+/home/revan/.local/lib/python3.13/site-packages/psycopg2/__init__.py:122: in connect
+    conn = _connect(dsn, connection_factory=connection_factory, **kwasync)
+E   sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  database "codenova_test_db" does not exist
+E   
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)
+=========================== short test summary info ============================
+ERROR tests/e2e/test_admin_workflows.py::TestAdminTeamManagementWorkflow::test_create_and_manage_team - sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  database "codenova_test_db" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+======================== 88 warnings, 1 error in 0.99s =========================
+STATUS: FAILED

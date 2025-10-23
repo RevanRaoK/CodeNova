@@ -1,0 +1,26 @@
+Test Report - Wed Oct 22 07:36:36 PM IST 2025
+================================================================================================
+
+
+================================================================================================
+TEST SUITE: Backend Unit Tests
+================================================================================================
+ImportError while loading conftest '/home/revan/Documents/PS_PROJECT/CodeNova/backend/tests/conftest.py'.
+tests/conftest.py:18: in <module>
+    from app.main import app
+app/main.py:13: in <module>
+    from app.api.v1.router import api_router
+app/api/v1/router.py:2: in <module>
+    from .endpoints import (
+app/api/v1/endpoints/repository.py:5: in <module>
+    from app.api.deps import get_db
+app/api/deps.py:1: in <module>
+    from app.core.database import SessionLocal, get_async_db
+app/core/database.py:11: in <module>
+    async_engine = create_async_engine(
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/engine.py:121: in create_async_engine
+    return AsyncEngine(sync_engine)
+/home/revan/.local/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/engine.py:1031: in __init__
+    raise exc.InvalidRequestError(
+E   sqlalchemy.exc.InvalidRequestError: The asyncio extension requires an async driver to be used. The loaded 'pysqlite' is not async.
+STATUS: FAILED

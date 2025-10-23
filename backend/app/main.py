@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.core.monitoring import get_service_logger, ServiceType, performance_monitor, system_monitor
 from app.core.security import SecurityMiddleware, RateLimiter
 from app.core.cache import cache, check_cache_health
+from app.core.error_handlers import register_error_handlers
 
 # --- DB startup (dev convenience) ---
 from app.core.database import Base, engine
@@ -207,6 +208,9 @@ if settings.ENVIRONMENT == "production":
     trusted_hosts = os.getenv("TRUSTED_HOSTS", "").split(",")
     if trusted_hosts and trusted_hosts[0]:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts)
+
+# Register error handlers
+register_error_handlers(app)
 
 # Mount the API router
 app.include_router(api_router, prefix=settings.API_V1_STR)

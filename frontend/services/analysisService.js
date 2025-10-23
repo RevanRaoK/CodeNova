@@ -1,4 +1,5 @@
 import httpClient from './httpClient.js';
+import { retryWithBackoff, handleApiError } from '../utils/retryUtils.js';
 
 /**
  * Code analysis service for handling code review and analysis operations
@@ -28,14 +29,30 @@ class AnalysisService {
   }
 
   /**
-   * Get analysis result by ID (for direct analyses)
+   * Get analysis result by ID (try batch first, then direct)
    * @param {string} analysisId - The analysis ID
    * @returns {Promise<Object>} Analysis result data
    */
   async getAnalysisById(analysisId) {
     try {
-      const response = await httpClient.get(`/analysis/direct/${analysisId}`);
-      return this.processAnalysisResponse(response.data);
+      // Get the analysis results for this file
+      const response = await httpClient.get(`/files/analysis/${analysisId}`);
+      
+      if (response.data) {
+        return {
+          id: analysisId,
+          filename: response.data.filename,
+          language: response.data.language,
+          status: response.data.status || 'completed',
+          issues: this.processIssues(response.data.issues || []),
+          metrics: this.processMetrics(response.data.metrics || {}),
+          createdAt: response.data.created_at,
+          completedAt: response.data.completed_at,
+          processingTime: response.data.processing_time
+        };
+      }
+      
+      throw new Error('No analysis data found');
     } catch (error) {
       console.error('Failed to fetch analysis:', error);
       throw this.handleAnalysisError(error);
@@ -89,16 +106,34 @@ class AnalysisService {
       if (options.language) params.append('language', options.language);
       if (options.status) params.append('status', options.status);
 
-      const response = await httpClient.get(`/analysis/direct/history?${params}`);
+      // Try the files endpoint to get your uploaded files
+      const response = await httpClient.get(`/files/?${params}`);
       
-      return {
-        analyses: response.data.analyses?.map(analysis => this.processAnalysisHistoryItem(analysis)) || [],
-        total_count: response.data.total_count || 0,
-        page: response.data.page || 1,
-        page_size: response.data.page_size || 20,
-        has_next: response.data.has_next || false,
-        has_previous: response.data.has_previous || false
-      };
+      if (response.data && response.data.files) {
+        const analyses = response.data.files.map(file => ({
+          id: file.id,
+          filename: file.filename || file.original_filename,
+          language: file.language || file.detected_language,
+          status: file.status || 'completed',
+          createdAt: file.created_at,
+          completedAt: file.analyzed_at || file.created_at,
+          issuesCount: file.issues_count || 0,
+          errorsCount: file.errors_count || 0,
+          warningsCount: file.warnings_count || 0,
+          processingTime: file.processing_time || 0
+        }));
+        
+        return {
+          analyses,
+          total_count: response.data.total || analyses.length,
+          page: response.data.page || 1,
+          page_size: response.data.page_size || 20,
+          has_next: response.data.has_next || false,
+          has_previous: response.data.has_previous || false
+        };
+      }
+      
+      throw new Error('No files data found');
     } catch (error) {
       console.error('Failed to fetch user analyses:', error);
       throw this.handleAnalysisError(error);
@@ -157,6 +192,185 @@ class AnalysisService {
     } catch (error) {
       console.error('File upload failed:', error);
       throw this.handleAnalysisError(error);
+    }
+  }
+
+  /**
+   * Upload and analyze multiple code files
+   * @param {File[]} files - Array of files to upload and analyze
+   * @param {Object} [options] - Upload options
+   * @param {Function} [options.onProgress] - Progress callback (fileIndex, progress)
+   * @param {boolean} [options.autoAnalyze] - Whether to automatically analyze after upload
+   * @returns {Promise<Object>} Batch upload response with analysis results
+   */
+  async uploadMultipleFiles(files, options = {}) {
+    try {
+      // Validate all files first
+      files.forEach((file, index) => {
+        try {
+          this.validateFile(file);
+        } catch (error) {
+          throw new Error(`File ${index + 1} (${file.name}): ${error.message}`);
+        }
+      });
+
+      const formData = new FormData();
+      
+      // Append all files
+      files.forEach((file, index) => {
+        formData.append('files', file);
+      });
+
+      // Add options
+      if (options.autoAnalyze !== undefined) {
+        formData.append('auto_analyze', options.autoAnalyze);
+      }
+
+      const response = await httpClient.post('/files/upload-multiple-batch', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        // Track upload progress
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          console.log(`Multi-file upload progress: ${percentCompleted}%`);
+          
+          // For multi-file uploads, we'll distribute progress across files
+          if (options.onProgress) {
+            const progressPerFile = percentCompleted / files.length;
+            files.forEach((_, index) => {
+              options.onProgress(index, Math.min(100, progressPerFile * (index + 1)));
+            });
+          }
+        }
+      });
+
+      const result = {
+        batchId: response.data.batch_id,
+        totalFiles: response.data.total_files,
+        processedFiles: response.data.processed_files,
+        status: response.data.status,
+        files: response.data.files?.map(fileResult => ({
+          filename: fileResult.filename,
+          language: fileResult.language,
+          sizeBytes: fileResult.size_bytes,
+          linesCount: fileResult.lines_count,
+          uploadId: fileResult.upload_id,
+          status: fileResult.status,
+          issues: this.processIssues(fileResult.issues || []),
+          metrics: this.processMetrics(fileResult.metrics || {}),
+          error: fileResult.error
+        })) || [],
+        uploadedAt: response.data.uploaded_at,
+        estimatedProcessingTime: response.data.estimated_processing_time
+      };
+
+      return result;
+    } catch (error) {
+      console.error('Multi-file upload failed:', error);
+      throw this.handleAnalysisError(error);
+    }
+  }
+
+  /**
+   * Get batch analysis status and results
+   * @param {string} batchId - The batch ID to check
+   * @returns {Promise<Object>} Batch status and results
+   */
+  async getBatchAnalysisStatus(batchId) {
+    try {
+      const response = await retryWithBackoff(
+        () => httpClient.get(`/files/batch/${batchId}/status`),
+        {
+          maxRetries: 2,
+          baseDelay: 1000,
+          shouldRetry: (error) => {
+            // Retry on network errors and 5xx status codes
+            return !error.response || error.response.status >= 500;
+          }
+        }
+      );
+      
+      return {
+        batch_id: response.data.batch_id,
+        status: response.data.status,
+        progress_percentage: response.data.progress_percentage,
+        total_files: response.data.total_files,
+        processed_files: response.data.processed_files,
+        successful_files: response.data.successful_files,
+        failed_files: response.data.failed_files,
+        created_at: response.data.created_at,
+        started_at: response.data.started_at,
+        completed_at: response.data.completed_at,
+        estimated_completion_time: response.data.estimated_completion_time,
+        processing_time_seconds: response.data.processing_time_seconds,
+        files: response.data.files?.map(fileResult => ({
+          filename: fileResult.filename,
+          language: fileResult.language,
+          status: fileResult.status,
+          file_index: fileResult.file_index,
+          issues_count: fileResult.issues_count,
+          errors_count: fileResult.errors_count,
+          warnings_count: fileResult.warnings_count,
+          processing_time_seconds: fileResult.processing_time_seconds,
+          error_message: fileResult.error_message,
+          issues: this.processIssues(fileResult.issues || []),
+          metrics: this.processMetrics(fileResult.metrics || {})
+        })) || []
+      };
+    } catch (error) {
+      console.error('Failed to fetch batch status:', error);
+      const errorInfo = handleApiError(error, { operation: 'fetch batch status' });
+      throw new Error(errorInfo.message);
+    }
+  }
+
+  /**
+   * Get batch analysis results
+   * @param {string} batchId - The batch ID to get results for
+   * @returns {Promise<Object>} Batch analysis results
+   */
+  async getBatchAnalysisResults(batchId) {
+    try {
+      const response = await retryWithBackoff(
+        () => httpClient.get(`/files/batch/${batchId}/results`),
+        {
+          maxRetries: 2,
+          baseDelay: 1000,
+          shouldRetry: (error) => {
+            // Retry on network errors and 5xx status codes
+            return !error.response || error.response.status >= 500;
+          }
+        }
+      );
+      
+      return {
+        batch_id: response.data.batch_id,
+        status: response.data.status,
+        total_files: response.data.total_files,
+        successful_files: response.data.successful_files,
+        success_rate: response.data.success_rate,
+        completed_at: response.data.completed_at,
+        processing_time_seconds: response.data.processing_time_seconds,
+        combined_results: response.data.combined_results,
+        files: response.data.files?.map(fileResult => ({
+          filename: fileResult.filename,
+          language: fileResult.language,
+          file_size_kb: fileResult.file_size_kb,
+          lines_count: fileResult.lines_count,
+          issues_count: fileResult.issues_count,
+          errors_count: fileResult.errors_count,
+          warnings_count: fileResult.warnings_count,
+          suggestions_count: fileResult.suggestions_count,
+          issues: this.processIssues(fileResult.issues || []),
+          metrics: this.processMetrics(fileResult.metrics || {}),
+          summary: fileResult.summary
+        })) || []
+      };
+    } catch (error) {
+      console.error('Failed to fetch batch results:', error);
+      const errorInfo = handleApiError(error, { operation: 'fetch batch results' });
+      throw new Error(errorInfo.message);
     }
   }
 
@@ -221,6 +435,42 @@ class AnalysisService {
       fileSizeBytes: analysisData.file_size_bytes,
       processingTimeMs: analysisData.processing_time_ms,
       aiModelUsed: analysisData.ai_model_used
+    };
+  }
+
+  /**
+   * Process batch analysis response data
+   * @param {Object} data - Raw batch analysis response data
+   * @returns {Object} Processed analysis data
+   */
+  processBatchAnalysisResponse(data) {
+    const allIssues = [];
+    const allMetrics = {};
+    
+    if (data.files && Array.isArray(data.files)) {
+      data.files.forEach(file => {
+        if (file.issues) {
+          allIssues.push(...this.processIssues(file.issues));
+        }
+        if (file.metrics) {
+          Object.assign(allMetrics, this.processMetrics(file.metrics));
+        }
+      });
+    }
+
+    return {
+      id: data.batch_id,
+      filename: `Batch Analysis (${data.total_files} files)`,
+      language: 'multiple',
+      status: data.status,
+      issues: allIssues,
+      metrics: allMetrics,
+      createdAt: data.created_at,
+      completedAt: data.completed_at,
+      processingTime: data.processing_time_seconds,
+      totalFiles: data.total_files,
+      successfulFiles: data.successful_files,
+      failedFiles: data.failed_files
     };
   }
 

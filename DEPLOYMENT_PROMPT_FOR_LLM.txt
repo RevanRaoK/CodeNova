@@ -1,0 +1,688 @@
+================================================================================
+COMPREHENSIVE DEPLOYMENT GUIDE REQUEST FOR DIGITAL OCEAN
+================================================================================
+
+PROJECT: CodeNova - Intelligent Code Review Bot Platform
+DOMAIN: code-nova.tech (registered with .tech domains)
+TARGET PLATFORM: Digital Ocean
+DEPLOYMENT TYPE: Production-ready, scalable deployment
+
+================================================================================
+IMPORTANT INSTRUCTIONS FOR THE LLM
+================================================================================
+
+I need you to provide me with EXTREMELY DETAILED, STEP-BY-STEP instructions to deploy this entire application to Digital Ocean in ONE COMPLETE DEPLOYMENT SESSION. 
+
+Your response MUST include:
+1. Every single command I need to run (with exact syntax)
+2. Every configuration file I need to create (with complete content)
+3. Every Digital Ocean service I need to set up (with specific settings)
+4. Every environment variable I need to configure (with example values)
+5. Troubleshooting steps for common issues
+6. Verification steps after each major section
+7. Security best practices and SSL/HTTPS setup
+8. Domain configuration for code-nova.tech
+9. Monitoring and logging setup
+10. Backup and disaster recovery procedures
+
+DO NOT give me high-level overviews. I need EXACT commands, EXACT file contents, and EXACT configuration values. Assume I am following your instructions line-by-line and need every detail.
+
+================================================================================
+PROJECT OVERVIEW
+================================================================================
+
+CodeNova is an AI-powered code review platform that analyzes source code files and provides intelligent suggestions for improvements. The platform includes:
+
+- Web-based file upload interface
+- Monaco code editor for direct code analysis
+- Real-time analysis status updates via WebSockets
+- User feedback system for AI suggestions
+- Analytics dashboards with visualizations
+- Admin panel for user and team management
+- Audit logging system
+- GitHub integration for automated code analysis
+
+================================================================================
+TECHNOLOGY STACK
+================================================================================
+
+BACKEND:
+- Language: Python 3.11+
+- Framework: FastAPI (async web framework)
+- Database: PostgreSQL 15+
+- Cache/Queue: Redis 7+
+- Background Workers: Celery (for async task processing)
+- AI Service: Google Gemini API (for code analysis)
+- ORM: SQLAlchemy 2.0+
+- Authentication: JWT tokens
+- WebSockets: FastAPI WebSocket support
+
+FRONTEND:
+- Framework: React 18+ with TypeScript
+- Build Tool: Vite
+- UI Components: Custom components
+- State Management: React Context/Hooks
+- Charts: Recharts or similar
+- Code Editor: Monaco Editor
+
+INFRASTRUCTURE:
+- Containerization: Docker & Docker Compose
+- Web Server: Nginx (reverse proxy)
+- SSL/TLS: Let's Encrypt (Certbot)
+- Process Manager: Systemd or Docker Compose
+- Monitoring: Basic logging and health checks
+
+DEPLOYMENT ARCHITECTURE:
+- Docker containers for all services
+- Separate containers for: Backend API, Frontend, PostgreSQL, Redis, Celery Workers
+- Nginx as reverse proxy and static file server
+- Persistent volumes for database and uploaded files
+
+================================================================================
+GITHUB INTEGRATION DETAILS
+================================================================================
+
+The platform includes a Python script that:
+- Monitors GitHub repositories for new commits/pull requests
+- Automatically downloads changed files
+- Queues them for analysis
+- Posts analysis results back to GitHub as PR comments
+- Runs continuously as a background service
+
+This script MUST:
+- Run as a separate Docker container or systemd service
+- Have access to the same database and Redis as the main application
+- Be able to restart automatically if it crashes
+- Have proper logging and error handling
+
+================================================================================
+CURRENT PROJECT STRUCTURE
+================================================================================
+
+The project has the following structure:
+
+backend/
+├── app/
+│   ├── main.py                    # FastAPI application entry point
+│   ├── core/
+│   │   ├── config.py              # Configuration management
+│   │   ├── security.py            # Authentication & JWT
+│   │   └── celery_app.py          # Celery configuration
+│   ├── api/
+│   │   └── v1/                    # API endpoints
+│   ├── models/                    # SQLAlchemy models
+│   ├── services/                  # Business logic
+│   └── db/
+│       └── session.py             # Database connection
+├── migrations/                    # Database migrations
+│   ├── migration_001_platform_enhancements.py
+│   └── run_migrations.py
+├── tests/                         # Test suite
+├── requirements.txt               # Python dependencies
+├── Dockerfile                     # Backend Docker image
+└── .env.example                   # Environment variables template
+
+frontend/
+├── src/
+│   ├── App.tsx                    # Main React component
+│   ├── components/                # React components
+│   ├── pages/                     # Page components
+│   └── services/                  # API client
+├── package.json                   # Node dependencies
+├── vite.config.ts                 # Vite configuration
+└── Dockerfile                     # Frontend Docker image
+
+docker-compose.yml                 # Docker Compose configuration
+nginx.conf                         # Nginx configuration (if exists)
+
+================================================================================
+DIGITAL OCEAN REQUIREMENTS
+================================================================================
+
+I need guidance on:
+
+1. DROPLET SETUP:
+   - What size/specs droplet do I need? (CPU, RAM, Storage)
+   - Which operating system? (Ubuntu 22.04 LTS recommended?)
+   - Which datacenter region is best?
+   - Do I need multiple droplets or one powerful droplet?
+
+2. MANAGED DATABASES (Optional):
+   - Should I use Digital Ocean Managed PostgreSQL?
+   - Should I use Digital Ocean Managed Redis?
+   - Or should I run them in Docker containers?
+   - Cost vs. performance trade-offs?
+
+3. SPACES (Object Storage):
+   - Should I use Digital Ocean Spaces for file uploads?
+   - How to configure it for uploaded code files?
+   - How to set up access keys and permissions?
+
+4. NETWORKING:
+   - How to configure firewall rules?
+   - Which ports need to be open?
+   - How to set up private networking between services?
+
+5. LOAD BALANCER (if needed):
+   - Do I need a load balancer for this application?
+   - How to configure it?
+
+6. MONITORING:
+   - How to set up basic monitoring?
+   - How to configure alerts?
+   - Log aggregation setup?
+
+================================================================================
+DOMAIN CONFIGURATION REQUIREMENTS
+================================================================================
+
+Domain: code-nova.tech (registered with .tech domains)
+
+I need EXACT instructions for:
+
+1. DNS CONFIGURATION:
+   - What A records to create?
+   - What CNAME records to create?
+   - What are the exact values for each record?
+   - How to point domain to Digital Ocean droplet?
+   - How to configure www subdomain?
+   - How to configure api subdomain (api.code-nova.tech)?
+
+2. SSL/HTTPS SETUP:
+   - How to install Let's Encrypt certificates?
+   - How to configure Certbot for automatic renewal?
+   - How to configure Nginx for HTTPS?
+   - How to redirect HTTP to HTTPS?
+   - How to handle SSL for both www and non-www?
+
+3. SUBDOMAIN CONFIGURATION:
+   - Main app: code-nova.tech or www.code-nova.tech
+   - API: api.code-nova.tech
+   - Admin: admin.code-nova.tech (if separate)
+
+================================================================================
+ENVIRONMENT VARIABLES NEEDED
+================================================================================
+
+The application requires these environment variables (provide EXACT values for production):
+
+# Database
+DATABASE_URL=postgresql://username:password@host:5432/database_name
+
+# Redis
+REDIS_URL=redis://:password@host:6379/0
+
+# Application
+SECRET_KEY=<needs to be generated - show me how>
+ENVIRONMENT=production
+DEBUG=false
+BASE_URL=https://code-nova.tech
+FRONTEND_URL=https://code-nova.tech
+API_VERSION=v1
+
+# AI Service
+GEMINI_API_KEY=<I will provide this>
+GEMINI_MODEL=gemini-pro
+
+# File Storage
+STORAGE_TYPE=spaces  # or local?
+SPACES_REGION=<which region?>
+SPACES_ENDPOINT=<exact endpoint?>
+SPACES_BUCKET=<bucket name?>
+SPACES_ACCESS_KEY=<how to generate?>
+SPACES_SECRET_KEY=<how to generate?>
+
+# Security
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
+CORS_ORIGINS=https://code-nova.tech,https://www.code-nova.tech
+
+# Email (optional)
+SMTP_ENABLED=false
+
+# Celery
+CELERY_BROKER_URL=redis://:password@host:6379/1
+CELERY_RESULT_BACKEND=redis://:password@host:6379/2
+
+Show me how to generate secure values for passwords and secret keys.
+
+================================================================================
+DOCKER DEPLOYMENT REQUIREMENTS
+================================================================================
+
+I need COMPLETE Docker Compose configuration that includes:
+
+1. SERVICES:
+   - Backend API (FastAPI)
+   - Frontend (React/Nginx)
+   - PostgreSQL database
+   - Redis cache/queue
+   - Celery worker (for background tasks)
+   - Celery beat (for scheduled tasks)
+   - GitHub integration script (continuous monitoring)
+   - Nginx reverse proxy
+
+2. VOLUMES:
+   - PostgreSQL data persistence
+   - Redis data persistence
+   - Uploaded files storage
+   - SSL certificates
+   - Application logs
+
+3. NETWORKS:
+   - Internal network for service communication
+   - External network for public access
+
+4. HEALTH CHECKS:
+   - Health check endpoints for each service
+   - Automatic restart policies
+
+5. RESOURCE LIMITS:
+   - Memory limits for each container
+   - CPU limits for each container
+
+Provide the COMPLETE docker-compose.yml file with all configurations.
+
+================================================================================
+NGINX CONFIGURATION REQUIREMENTS
+================================================================================
+
+I need COMPLETE Nginx configuration that handles:
+
+1. REVERSE PROXY:
+   - Proxy requests to FastAPI backend
+   - Serve React frontend static files
+   - WebSocket support for real-time updates
+
+2. SSL/HTTPS:
+   - SSL certificate configuration
+   - HTTP to HTTPS redirect
+   - Security headers (HSTS, CSP, etc.)
+
+3. CACHING:
+   - Static file caching
+   - API response caching (where appropriate)
+
+4. COMPRESSION:
+   - Gzip compression for text files
+   - Brotli compression (if available)
+
+5. SECURITY:
+   - Rate limiting
+   - Request size limits
+   - Security headers
+
+6. LOGGING:
+   - Access logs
+   - Error logs
+
+Provide the COMPLETE nginx.conf file with all configurations.
+
+================================================================================
+DATABASE MIGRATION REQUIREMENTS
+================================================================================
+
+The project has database migrations that need to be run. Show me:
+
+1. How to run migrations during initial deployment
+2. How to run migrations during updates
+3. How to verify migrations were successful
+4. How to rollback if something goes wrong
+5. How to backup database before migrations
+
+The migration script is located at: backend/migrations/run_migrations.py
+
+Commands available:
+- python backend/migrations/run_migrations.py status
+- python backend/migrations/run_migrations.py upgrade
+- python backend/migrations/run_migrations.py downgrade
+- python backend/migrations/run_migrations.py verify
+
+================================================================================
+GITHUB INTEGRATION SCRIPT REQUIREMENTS
+================================================================================
+
+The GitHub integration script needs to:
+
+1. Run continuously in the background
+2. Monitor GitHub webhooks or poll repositories
+3. Download changed files when commits/PRs are created
+4. Queue files for analysis
+5. Post results back to GitHub
+6. Handle errors and retry failed operations
+7. Log all activities
+8. Restart automatically if it crashes
+
+Show me how to:
+- Configure it as a Docker container or systemd service
+- Set up GitHub webhooks (if needed)
+- Configure GitHub API tokens
+- Set up proper logging
+- Monitor its health
+- Debug issues
+
+================================================================================
+DEPLOYMENT STEPS I NEED
+================================================================================
+
+Provide COMPLETE step-by-step instructions for:
+
+PHASE 1: DIGITAL OCEAN SETUP
+1. Create Digital Ocean account (if needed)
+2. Create droplet with exact specifications
+3. Set up SSH access
+4. Configure firewall
+5. Set up managed databases (if recommended)
+6. Set up Spaces for file storage
+7. Configure networking
+
+PHASE 2: SERVER PREPARATION
+1. SSH into droplet
+2. Update system packages
+3. Install Docker and Docker Compose
+4. Install other required tools
+5. Configure system settings (swap, limits, etc.)
+6. Set up directory structure
+7. Configure firewall rules
+
+PHASE 3: DOMAIN CONFIGURATION
+1. Configure DNS records at .tech domains
+2. Wait for DNS propagation
+3. Verify DNS configuration
+
+PHASE 4: APPLICATION DEPLOYMENT
+1. Clone/upload application code
+2. Create all necessary configuration files
+3. Set up environment variables
+4. Build Docker images
+5. Start Docker containers
+6. Run database migrations
+7. Verify all services are running
+
+PHASE 5: SSL/HTTPS SETUP
+1. Install Certbot
+2. Obtain SSL certificates
+3. Configure Nginx for HTTPS
+4. Set up automatic renewal
+5. Test HTTPS access
+
+PHASE 6: GITHUB INTEGRATION SETUP
+1. Create GitHub App or Personal Access Token
+2. Configure webhooks
+3. Deploy GitHub integration script
+4. Test integration
+5. Monitor logs
+
+PHASE 7: VERIFICATION & TESTING
+1. Test all API endpoints
+2. Test file upload functionality
+3. Test code analysis
+4. Test WebSocket connections
+5. Test admin panel
+6. Test GitHub integration
+7. Load testing (basic)
+
+PHASE 8: MONITORING & MAINTENANCE
+1. Set up log rotation
+2. Configure monitoring
+3. Set up automated backups
+4. Create maintenance scripts
+5. Document common operations
+
+PHASE 9: SECURITY HARDENING
+1. Configure firewall rules
+2. Set up fail2ban
+3. Disable root login
+4. Configure SSH keys only
+5. Set up security updates
+6. Review and apply security best practices
+
+PHASE 10: POST-DEPLOYMENT
+1. Create admin user
+2. Test all functionality
+3. Monitor for 24 hours
+4. Document any issues
+5. Create runbook for common operations
+
+================================================================================
+SPECIFIC COMMANDS I NEED
+================================================================================
+
+For EVERY step, provide:
+
+1. The EXACT command to run
+2. Expected output
+3. What to do if there's an error
+4. How to verify it worked
+
+Example format I want:
+
+Step X: Install Docker
+Command:
+```bash
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+```
+
+Expected Output:
+[show expected output]
+
+Verification:
+```bash
+docker --version
+```
+
+Should show: Docker version 24.x.x or higher
+
+If error occurs:
+[troubleshooting steps]
+
+================================================================================
+CONFIGURATION FILES I NEED
+================================================================================
+
+Provide COMPLETE content for these files:
+
+1. docker-compose.yml (production-ready)
+2. nginx.conf (complete configuration)
+3. .env (production environment variables)
+4. Dockerfile for backend (if not exists or needs modification)
+5. Dockerfile for frontend (if not exists or needs modification)
+6. systemd service files (if needed for GitHub script)
+7. backup scripts
+8. monitoring scripts
+9. maintenance scripts
+
+For EACH file, provide:
+- Complete file content (not snippets)
+- Explanation of each section
+- Security considerations
+- Performance optimizations
+
+================================================================================
+TROUBLESHOOTING GUIDE I NEED
+================================================================================
+
+Include troubleshooting for:
+
+1. Docker containers not starting
+2. Database connection errors
+3. Redis connection errors
+4. SSL certificate issues
+5. Domain not resolving
+6. API returning errors
+7. File upload failures
+8. WebSocket connection failures
+9. GitHub integration not working
+10. Performance issues
+11. Out of memory errors
+12. Disk space issues
+
+For each issue, provide:
+- How to diagnose
+- How to fix
+- How to prevent
+
+================================================================================
+BACKUP & RECOVERY I NEED
+================================================================================
+
+Show me how to:
+
+1. Backup PostgreSQL database (automated daily)
+2. Backup uploaded files
+3. Backup configuration files
+4. Backup Docker volumes
+5. Test backup restoration
+6. Set up automated backups
+7. Store backups securely
+8. Restore from backup in case of disaster
+
+Provide complete backup scripts.
+
+================================================================================
+MONITORING & LOGGING I NEED
+================================================================================
+
+Show me how to:
+
+1. View application logs
+2. View Nginx logs
+3. View Docker container logs
+4. Set up log rotation
+5. Monitor disk space
+6. Monitor memory usage
+7. Monitor CPU usage
+8. Monitor database performance
+9. Set up basic alerts
+10. Create health check endpoints
+
+Provide monitoring scripts and commands.
+
+================================================================================
+MAINTENANCE OPERATIONS I NEED
+================================================================================
+
+Show me how to:
+
+1. Update application code (zero-downtime deployment)
+2. Update Docker images
+3. Run database migrations
+4. Restart services
+5. Scale services (add more workers)
+6. Clean up old logs
+7. Clean up old backups
+8. Optimize database
+9. Update SSL certificates
+10. Update system packages
+
+Provide maintenance scripts and procedures.
+
+================================================================================
+COST ESTIMATION I NEED
+================================================================================
+
+Provide estimated monthly costs for:
+
+1. Droplet (specify size/specs)
+2. Managed PostgreSQL (if recommended)
+3. Managed Redis (if recommended)
+4. Spaces storage
+5. Bandwidth
+6. Backups
+7. Load balancer (if needed)
+8. Total estimated monthly cost
+
+Include cost optimization tips.
+
+================================================================================
+SECURITY CHECKLIST I NEED
+================================================================================
+
+Provide a complete security checklist with:
+
+1. Firewall configuration
+2. SSH hardening
+3. SSL/TLS configuration
+4. Database security
+5. API security
+6. File upload security
+7. Environment variable security
+8. Docker security
+9. Nginx security
+10. Regular security updates
+
+For each item, provide exact commands and configurations.
+
+================================================================================
+FINAL VERIFICATION CHECKLIST
+================================================================================
+
+After deployment, provide a checklist to verify:
+
+1. [ ] Domain resolves correctly
+2. [ ] HTTPS works (no certificate errors)
+3. [ ] API endpoints respond correctly
+4. [ ] File upload works
+5. [ ] Code analysis works
+6. [ ] WebSocket connections work
+7. [ ] Admin panel accessible
+8. [ ] GitHub integration works
+9. [ ] Database backups running
+10. [ ] Logs are being written
+11. [ ] Monitoring is active
+12. [ ] All Docker containers running
+13. [ ] No errors in logs
+14. [ ] Performance is acceptable
+15. [ ] Security measures in place
+
+================================================================================
+IMPORTANT NOTES
+================================================================================
+
+1. I am following your instructions EXACTLY, so be VERY specific
+2. Don't skip any steps, even if they seem obvious
+3. Provide complete file contents, not partial snippets
+4. Include error handling and troubleshooting for each step
+5. Assume I'm doing this for the first time
+6. Include verification steps after each major section
+7. Prioritize security and best practices
+8. Make it production-ready, not just a development setup
+9. Include monitoring and maintenance from the start
+10. Provide a timeline estimate for the entire deployment
+
+================================================================================
+MY CURRENT SITUATION
+================================================================================
+
+- I have a Digital Ocean account (or will create one)
+- I have the domain code-nova.tech registered with .tech domains
+- I have the application code ready
+- I have a Gemini API key for the AI service
+- I am comfortable with command line but need exact commands
+- I want a production-ready deployment, not a quick demo
+- I need this to be secure, scalable, and maintainable
+- I will follow your instructions step-by-step
+
+================================================================================
+EXPECTED DELIVERABLE FROM YOU
+================================================================================
+
+A COMPLETE, DETAILED, STEP-BY-STEP guide that I can follow from start to finish to deploy this application to Digital Ocean with:
+
+- Every command I need to run
+- Every file I need to create (with complete content)
+- Every configuration I need to set
+- Every verification step to ensure it's working
+- Troubleshooting for common issues
+- Security best practices applied
+- Monitoring and logging set up
+- Backup and recovery procedures
+- Maintenance procedures
+
+The guide should be so detailed that I can copy-paste commands and follow along without having to figure anything out on my own.
+
+================================================================================
+BEGIN YOUR COMPREHENSIVE DEPLOYMENT GUIDE NOW
+================================================================================
+
+Please provide the complete deployment guide following all the requirements above. Start with Phase 1 and continue through all phases with extreme detail.

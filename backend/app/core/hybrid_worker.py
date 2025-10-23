@@ -107,17 +107,35 @@ class HybridWorker:
 async def main():
     """Main worker function."""
     worker = HybridWorker()
+    shutdown_event = asyncio.Event()
     
-    # Setup signal handlers
+    # Setup signal handlers for graceful shutdown
     def signal_handler(signum, frame):
-        logger.info(f"Received signal {signum}, shutting down...")
+        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
         worker.stop()
+        shutdown_event.set()
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
     try:
-        await worker.start()
+        # Start worker in a task so we can cancel it
+        worker_task = asyncio.create_task(worker.start())
+        
+        # Wait for either completion or shutdown signal
+        done, pending = await asyncio.wait(
+            [worker_task, asyncio.create_task(shutdown_event.wait())],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        
+        # Cancel pending tasks
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+                
     except KeyboardInterrupt:
         logger.info("Worker interrupted by user")
     except Exception as e:

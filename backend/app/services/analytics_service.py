@@ -526,6 +526,180 @@ class AnalyticsService:
             }
         }
     
+    async def get_dashboard_data(self, user_id: int, timeframe: str = "30d") -> Dict[str, Any]:
+        """
+        Get comprehensive dashboard data for a user including all metrics.
+        
+        Args:
+            user_id: User ID to get dashboard data for
+            timeframe: Time period (7d, 30d, 90d, 1y)
+            
+        Returns:
+            Dict containing all dashboard analytics data
+            
+        Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6
+        """
+        cache_key = self._get_cache_key("dashboard_data", user_id=user_id, timeframe=timeframe)
+        
+        # Try to get from cache first
+        cached_data = self._get_cached_data(cache_key)
+        if cached_data:
+            logger.info(f"Cache hit for dashboard data: user {user_id}, timeframe {timeframe}")
+            return cached_data
+        
+        try:
+            # Get all dashboard components concurrently
+            user_stats = await self.get_user_stats(user_id)
+            usage_trends = await self.get_usage_trends(user_id, timeframe)
+            feedback_distribution = await self.get_feedback_distribution(user_id, timeframe)
+            
+            # Calculate performance metrics
+            performance_metrics = await self._calculate_performance_metrics(user_id, timeframe)
+            
+            result = {
+                "userStats": user_stats,
+                "usageTrends": usage_trends,
+                "feedbackDistribution": feedback_distribution,
+                "performanceMetrics": performance_metrics,
+                "generatedAt": datetime.utcnow().isoformat(),
+                "timeframe": timeframe,
+                "userId": user_id
+            }
+            
+            # Cache the result with shorter TTL for dashboard
+            self._set_cached_data(cache_key, result, ttl=analytics_config.DASHBOARD_CACHE_TTL)
+            logger.info(f"Dashboard data calculated and cached for user {user_id}, timeframe {timeframe}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error calculating dashboard data for user {user_id}: {e}")
+            return {
+                "userStats": {"totalReviews": 0, "totalAnalyses": 0, "successRate": 0.0, "totalFeedback": 0, "acceptanceRate": 0.0, "recentActivity": []},
+                "usageTrends": {"trends": [], "timeframe": timeframe, "summary": {"totalReviews": 0, "totalFeedback": 0, "avgDailyReviews": 0.0}},
+                "feedbackDistribution": {"distribution": {"accept": 0, "reject": 0, "modify": 0, "ignore": 0}, "timeframe": timeframe, "total": 0},
+                "performanceMetrics": {"avgResponseTime": 0.0, "avgIssuesPerReview": 0.0, "mostCommonPatterns": [], "improvementTrend": "stable"},
+                "generatedAt": datetime.utcnow().isoformat(),
+                "timeframe": timeframe,
+                "userId": user_id
+            }
+    
+    async def _calculate_performance_metrics(self, user_id: int, timeframe: str = "30d") -> Dict[str, Any]:
+        """
+        Calculate performance metrics for a user.
+        
+        Args:
+            user_id: User ID to calculate metrics for
+            timeframe: Time period for calculation
+            
+        Returns:
+            Dict containing performance metrics
+        """
+        from ..models.analysis import DirectAnalysis
+        from ..models.feedback import Issue
+        
+        try:
+            # Calculate date range
+            days_map = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
+            days = days_map.get(timeframe, 30)
+            start_date = datetime.utcnow() - timedelta(days=days)
+            
+            # Get completed analyses in timeframe
+            analyses = self.db.query(DirectAnalysis).filter(
+                and_(
+                    DirectAnalysis.user_id == user_id,
+                    DirectAnalysis.status == "completed",
+                    DirectAnalysis.created_at >= start_date
+                )
+            ).all()
+            
+            if not analyses:
+                return {
+                    "avgResponseTime": 0.0,
+                    "avgIssuesPerReview": 0.0,
+                    "mostCommonPatterns": [],
+                    "improvementTrend": "stable",
+                    "totalAnalysisTime": 0.0,
+                    "avgComplexityScore": 0.0
+                }
+            
+            # Calculate average response time (analysis duration)
+            response_times = []
+            total_issues = 0
+            complexity_scores = []
+            
+            for analysis in analyses:
+                if analysis.completed_at and analysis.created_at:
+                    duration = (analysis.completed_at - analysis.created_at).total_seconds()
+                    response_times.append(duration)
+                
+                total_issues += analysis.issues_count or 0
+                
+                if analysis.complexity_score:
+                    complexity_scores.append(analysis.complexity_score)
+            
+            avg_response_time = sum(response_times) / len(response_times) if response_times else 0.0
+            avg_issues_per_review = total_issues / len(analyses) if analyses else 0.0
+            avg_complexity_score = sum(complexity_scores) / len(complexity_scores) if complexity_scores else 0.0
+            
+            # Get most common patterns from issues
+            issues = self.db.query(Issue).join(DirectAnalysis).filter(
+                and_(
+                    DirectAnalysis.user_id == user_id,
+                    DirectAnalysis.created_at >= start_date
+                )
+            ).all()
+            
+            pattern_counts = Counter(issue.pattern_type for issue in issues)
+            most_common_patterns = [
+                {"pattern": pattern, "count": count}
+                for pattern, count in pattern_counts.most_common(5)
+            ]
+            
+            # Calculate improvement trend (compare with previous period)
+            prev_start_date = start_date - timedelta(days=days)
+            prev_analyses = self.db.query(DirectAnalysis).filter(
+                and_(
+                    DirectAnalysis.user_id == user_id,
+                    DirectAnalysis.status == "completed",
+                    DirectAnalysis.created_at >= prev_start_date,
+                    DirectAnalysis.created_at < start_date
+                )
+            ).count()
+            
+            current_count = len(analyses)
+            if prev_analyses > 0:
+                if current_count > prev_analyses:
+                    improvement_trend = "improving"
+                elif current_count < prev_analyses:
+                    improvement_trend = "declining"
+                else:
+                    improvement_trend = "stable"
+            else:
+                improvement_trend = "new" if current_count > 0 else "stable"
+            
+            return {
+                "avgResponseTime": round(avg_response_time, 2),
+                "avgIssuesPerReview": round(avg_issues_per_review, 2),
+                "mostCommonPatterns": most_common_patterns,
+                "improvementTrend": improvement_trend,
+                "totalAnalysisTime": round(sum(response_times), 2),
+                "avgComplexityScore": round(avg_complexity_score, 2),
+                "totalAnalyses": len(analyses),
+                "totalIssuesFound": total_issues
+            }
+            
+        except Exception as e:
+            logger.error(f"Error calculating performance metrics for user {user_id}: {e}")
+            return {
+                "avgResponseTime": 0.0,
+                "avgIssuesPerReview": 0.0,
+                "mostCommonPatterns": [],
+                "improvementTrend": "stable",
+                "totalAnalysisTime": 0.0,
+                "avgComplexityScore": 0.0
+            }
+    
     def invalidate_cache(self, pattern: str = "*") -> None:
         """
         Invalidate cached analytics data.
@@ -543,3 +717,784 @@ class AnalyticsService:
                 logger.info(f"Invalidated {len(keys)} cache keys matching pattern: {pattern}")
         except Exception as e:
             logger.warning(f"Cache invalidation error: {e}")
+    
+    def invalidate_user_cache(self, user_id: int) -> None:
+        """
+        Invalidate all cached data for a specific user.
+        
+        Args:
+            user_id: User ID to invalidate cache for
+        """
+        patterns = [
+            f"user_stats:user_id:{user_id}",
+            f"usage_trends:user_id:{user_id}:*",
+            f"feedback_distribution:user_id:{user_id}:*",
+            f"dashboard_data:user_id:{user_id}:*"
+        ]
+        
+        for pattern in patterns:
+            self.invalidate_cache(pattern)
+        
+        logger.info(f"Invalidated all cache for user: {user_id}")
+    
+    async def get_user_stats(self, user_id: int) -> Dict[str, Any]:
+        """
+        Get user statistics including total reviews, analyses, success rate, and recent activity.
+        
+        Args:
+            user_id: User ID to get statistics for
+            
+        Returns:
+            Dict containing user statistics
+            
+        Requirements: 1.1, 1.3, 1.4, 1.5, 1.6
+        """
+        from ..models.analysis import DirectAnalysis
+        from ..models.feedback import Issue
+        
+        cache_key = self._get_cache_key("user_stats", user_id=user_id)
+        
+        # Try to get from cache first
+        cached_data = self._get_cached_data(cache_key)
+        if cached_data:
+            logger.info(f"Cache hit for user stats: {user_id}")
+            return cached_data
+        
+        try:
+            # Get total analyses count
+            total_analyses = self.db.query(DirectAnalysis).filter(
+                DirectAnalysis.user_id == user_id
+            ).count()
+            
+            # Get completed analyses
+            completed_analyses = self.db.query(DirectAnalysis).filter(
+                and_(
+                    DirectAnalysis.user_id == user_id,
+                    DirectAnalysis.status == "completed"
+                )
+            ).count()
+            
+            # Calculate success rate
+            success_rate = (completed_analyses / total_analyses * 100) if total_analyses > 0 else 0
+            
+            # Get total feedback count
+            total_feedback = self.db.query(FeedbackRecord).filter(
+                FeedbackRecord.user_id == user_id
+            ).count()
+            
+            # Get accepted feedback count
+            accepted_feedback = self.db.query(FeedbackRecord).filter(
+                and_(
+                    FeedbackRecord.user_id == user_id,
+                    FeedbackRecord.feedback_type == "accept"
+                )
+            ).count()
+            
+            # Calculate acceptance rate
+            acceptance_rate = (accepted_feedback / total_feedback * 100) if total_feedback > 0 else 0
+            
+            # Get total issues found across all analyses
+            total_issues = self.db.query(Issue).join(DirectAnalysis).filter(
+                DirectAnalysis.user_id == user_id
+            ).count()
+            
+            # Get recent activity (last 10 analyses)
+            recent_analyses = self.db.query(DirectAnalysis).filter(
+                DirectAnalysis.user_id == user_id
+            ).order_by(desc(DirectAnalysis.created_at)).limit(10).all()
+            
+            recent_activity = []
+            for analysis in recent_analyses:
+                activity_type = "review"
+                status_map = {
+                    "completed": "success",
+                    "failed": "warning",
+                    "pending": "info",
+                    "in_progress": "info"
+                }
+                
+                # Get issue count for this analysis
+                issue_count = analysis.issues_count or 0
+                description = f"Analyzed {analysis.language} code"
+                if issue_count > 0:
+                    description += f" - {issue_count} issues found"
+                description += f" - {analysis.status}"
+                
+                recent_activity.append({
+                    "id": analysis.id,
+                    "type": activity_type,
+                    "description": description,
+                    "time": analysis.created_at.isoformat() if analysis.created_at else None,
+                    "status": status_map.get(analysis.status, "info"),
+                    "issuesFound": issue_count
+                })
+            
+            result = {
+                "totalReviews": total_analyses,
+                "totalAnalyses": completed_analyses,
+                "successRate": round(success_rate, 2),
+                "totalFeedback": total_feedback,
+                "acceptanceRate": round(acceptance_rate, 2),
+                "totalIssuesFound": total_issues,
+                "recentActivity": recent_activity
+            }
+            
+            # Cache the result with shorter TTL for real-time feel
+            self._set_cached_data(cache_key, result, ttl=analytics_config.DASHBOARD_CACHE_TTL)
+            logger.info(f"User stats calculated and cached for user: {user_id}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error calculating user stats for user {user_id}: {e}")
+            # Return empty stats on error
+            return {
+                "totalReviews": 0,
+                "totalAnalyses": 0,
+                "successRate": 0.0,
+                "totalFeedback": 0,
+                "acceptanceRate": 0.0,
+                "totalIssuesFound": 0,
+                "recentActivity": []
+            }
+    
+    async def get_usage_trends(self, user_id: int, timeframe: str = "30d") -> Dict[str, Any]:
+        """
+        Get usage trends over time for a specific user.
+        
+        Args:
+            user_id: User ID to get trends for
+            timeframe: Time period (7d, 30d, 90d, 1y)
+            
+        Returns:
+            Dict containing usage trends data
+            
+        Requirements: 1.3, 1.4, 1.5
+        """
+        from ..models.analysis import DirectAnalysis
+        
+        cache_key = self._get_cache_key("usage_trends", user_id=user_id, timeframe=timeframe)
+        
+        # Try to get from cache first
+        cached_data = self._get_cached_data(cache_key)
+        if cached_data:
+            logger.info(f"Cache hit for usage trends: user {user_id}, timeframe {timeframe}")
+            return cached_data
+        
+        try:
+            # Calculate date range
+            days_map = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
+            days = days_map.get(timeframe, 30)
+            start_date = datetime.utcnow() - timedelta(days=days)
+            
+            # Get analyses in timeframe with optimized query
+            analyses = self.db.query(DirectAnalysis).filter(
+                and_(
+                    DirectAnalysis.user_id == user_id,
+                    DirectAnalysis.created_at >= start_date
+                )
+            ).order_by(DirectAnalysis.created_at).all()
+            
+            # Get feedback in timeframe with optimized query
+            feedback_records = self.db.query(FeedbackRecord).filter(
+                and_(
+                    FeedbackRecord.user_id == user_id,
+                    FeedbackRecord.created_at >= start_date
+                )
+            ).order_by(FeedbackRecord.created_at).all()
+            
+            # Group by date with enhanced metrics
+            daily_data = defaultdict(lambda: {
+                "reviews": 0, 
+                "accepted": 0, 
+                "rejected": 0, 
+                "modified": 0,
+                "issues_found": 0,
+                "completed_reviews": 0
+            })
+            
+            for analysis in analyses:
+                date_str = analysis.created_at.strftime('%Y-%m-%d')
+                daily_data[date_str]["reviews"] += 1
+                if analysis.status == "completed":
+                    daily_data[date_str]["completed_reviews"] += 1
+                    daily_data[date_str]["issues_found"] += analysis.issues_count or 0
+            
+            for feedback in feedback_records:
+                date_str = feedback.created_at.strftime('%Y-%m-%d')
+                if feedback.feedback_type == "accept":
+                    daily_data[date_str]["accepted"] += 1
+                elif feedback.feedback_type == "reject":
+                    daily_data[date_str]["rejected"] += 1
+                elif feedback.feedback_type == "modify":
+                    daily_data[date_str]["modified"] += 1
+            
+            # Fill in missing dates with zero values
+            current_date = start_date.date()
+            end_date = datetime.utcnow().date()
+            
+            while current_date <= end_date:
+                date_str = current_date.strftime('%Y-%m-%d')
+                if date_str not in daily_data:
+                    daily_data[date_str] = {
+                        "reviews": 0, 
+                        "accepted": 0, 
+                        "rejected": 0, 
+                        "modified": 0,
+                        "issues_found": 0,
+                        "completed_reviews": 0
+                    }
+                current_date += timedelta(days=1)
+            
+            # Convert to list format with enhanced data
+            trends = []
+            for date_str in sorted(daily_data.keys()):
+                data = daily_data[date_str]
+                trends.append({
+                    "date": date_str,
+                    "reviews": data["reviews"],
+                    "accepted": data["accepted"],
+                    "rejected": data["rejected"],
+                    "modified": data["modified"],
+                    "issuesFound": data["issues_found"],
+                    "completedReviews": data["completed_reviews"]
+                })
+            
+            # Calculate summary statistics
+            total_reviews = sum(t["reviews"] for t in trends)
+            total_feedback = sum(t["accepted"] + t["rejected"] + t["modified"] for t in trends)
+            avg_daily_reviews = total_reviews / days if days > 0 else 0
+            
+            result = {
+                "trends": trends,
+                "timeframe": timeframe,
+                "summary": {
+                    "totalReviews": total_reviews,
+                    "totalFeedback": total_feedback,
+                    "avgDailyReviews": round(avg_daily_reviews, 2),
+                    "totalIssuesFound": sum(t["issuesFound"] for t in trends)
+                }
+            }
+            
+            # Cache the result
+            self._set_cached_data(cache_key, result, ttl=analytics_config.DEFAULT_CACHE_TTL)
+            logger.info(f"Usage trends calculated and cached for user {user_id}, timeframe {timeframe}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error calculating usage trends for user {user_id}: {e}")
+            return {
+                "trends": [],
+                "timeframe": timeframe,
+                "summary": {
+                    "totalReviews": 0,
+                    "totalFeedback": 0,
+                    "avgDailyReviews": 0.0,
+                    "totalIssuesFound": 0
+                }
+            }
+    
+    async def get_feedback_distribution(self, user_id: int, timeframe: str = "30d") -> Dict[str, Any]:
+        """
+        Get feedback distribution by type for a specific user.
+        
+        Args:
+            user_id: User ID to get distribution for
+            timeframe: Time period (7d, 30d, 90d, 1y)
+            
+        Returns:
+            Dict containing feedback distribution data
+            
+        Requirements: 1.4, 1.5, 1.6
+        """
+        cache_key = self._get_cache_key("feedback_distribution", user_id=user_id, timeframe=timeframe)
+        
+        # Try to get from cache first
+        cached_data = self._get_cached_data(cache_key)
+        if cached_data:
+            logger.info(f"Cache hit for feedback distribution: user {user_id}, timeframe {timeframe}")
+            return cached_data
+        
+        try:
+            # Calculate date range
+            days_map = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
+            days = days_map.get(timeframe, 30)
+            start_date = datetime.utcnow() - timedelta(days=days)
+            
+            # Get feedback in timeframe with optimized query
+            feedback_records = self.db.query(FeedbackRecord).filter(
+                and_(
+                    FeedbackRecord.user_id == user_id,
+                    FeedbackRecord.created_at >= start_date
+                )
+            ).all()
+            
+            # Count by type with enhanced categories
+            distribution = {
+                "accept": 0,
+                "reject": 0,
+                "modify": 0,
+                "ignore": 0
+            }
+            
+            # Track additional metrics
+            severity_distribution = defaultdict(int)
+            pattern_distribution = defaultdict(int)
+            
+            for feedback in feedback_records:
+                feedback_type = feedback.feedback_type
+                if feedback_type in distribution:
+                    distribution[feedback_type] += 1
+                
+                # Get issue details for enhanced analytics
+                if feedback.issue:
+                    severity_distribution[feedback.issue.severity] += 1
+                    pattern_distribution[feedback.issue.pattern_type] += 1
+            
+            # Calculate percentages
+            total_feedback = sum(distribution.values())
+            distribution_percentages = {}
+            for feedback_type, count in distribution.items():
+                percentage = (count / total_feedback * 100) if total_feedback > 0 else 0
+                distribution_percentages[feedback_type] = round(percentage, 2)
+            
+            # Get top patterns and severities
+            top_patterns = dict(Counter(pattern_distribution).most_common(5))
+            top_severities = dict(Counter(severity_distribution).most_common(5))
+            
+            result = {
+                "distribution": distribution,
+                "distributionPercentages": distribution_percentages,
+                "severityDistribution": dict(severity_distribution),
+                "patternDistribution": dict(pattern_distribution),
+                "topPatterns": top_patterns,
+                "topSeverities": top_severities,
+                "timeframe": timeframe,
+                "total": total_feedback
+            }
+            
+            # Cache the result
+            self._set_cached_data(cache_key, result, ttl=analytics_config.DEFAULT_CACHE_TTL)
+            logger.info(f"Feedback distribution calculated and cached for user {user_id}, timeframe {timeframe}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error calculating feedback distribution for user {user_id}: {e}")
+            return {
+                "distribution": {"accept": 0, "reject": 0, "modify": 0, "ignore": 0},
+                "distributionPercentages": {"accept": 0, "reject": 0, "modify": 0, "ignore": 0},
+                "severityDistribution": {},
+                "patternDistribution": {},
+                "topPatterns": {},
+                "topSeverities": {},
+                "timeframe": timeframe,
+                "total": 0
+            }
+    
+    async def get_issue_trends(
+        self,
+        user_id: int,
+        timeframe: str = "30d"
+    ) -> Dict[str, Any]:
+        """
+        Get issue trends over time for a specific user.
+        
+        Args:
+            user_id: User ID to get trends for
+            timeframe: Time period (7d, 30d, 90d, 1y)
+            
+        Returns:
+            Dict containing time-series issue trend data
+            
+        Requirements: 4.1, 4.2, 4.3, 4.4
+        """
+        from ..models.analysis import DirectAnalysis
+        from ..models.feedback import Issue
+        
+        cache_key = self._get_cache_key("issue_trends", user_id=user_id, timeframe=timeframe)
+        
+        # Try to get from cache first
+        cached_data = self._get_cached_data(cache_key)
+        if cached_data:
+            logger.info(f"Cache hit for issue trends: user {user_id}, timeframe {timeframe}")
+            return cached_data
+        
+        try:
+            # Calculate date range
+            days_map = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
+            days = days_map.get(timeframe, 30)
+            start_date = datetime.utcnow() - timedelta(days=days)
+            
+            # Get completed analyses in timeframe
+            analyses = self.db.query(DirectAnalysis).filter(
+                and_(
+                    DirectAnalysis.user_id == user_id,
+                    DirectAnalysis.status == "completed",
+                    DirectAnalysis.created_at >= start_date
+                )
+            ).all()
+            
+            # Group issues by date and type
+            daily_data = defaultdict(lambda: {
+                "date": None,
+                "errors": 0,
+                "security_issues": 0,
+                "warnings": 0,
+                "total": 0
+            })
+            
+            for analysis in analyses:
+                date_str = analysis.created_at.strftime('%Y-%m-%d')
+                daily_data[date_str]["date"] = date_str
+                
+                # Get issues for this analysis
+                issues = self.db.query(Issue).filter(
+                    Issue.analysis_id == analysis.id
+                ).all()
+                
+                for issue in issues:
+                    daily_data[date_str]["total"] += 1
+                    
+                    # Categorize by severity and type
+                    severity = issue.severity.lower() if issue.severity else "unknown"
+                    pattern_type = issue.pattern_type.lower() if issue.pattern_type else ""
+                    
+                    if severity in ["critical", "high", "error"]:
+                        daily_data[date_str]["errors"] += 1
+                    elif "security" in pattern_type or "vulnerability" in pattern_type:
+                        daily_data[date_str]["security_issues"] += 1
+                    elif severity in ["medium", "low", "warning"]:
+                        daily_data[date_str]["warnings"] += 1
+            
+            # Convert to sorted list
+            data_points = sorted(daily_data.values(), key=lambda x: x["date"])
+            
+            # Calculate summary statistics
+            total_errors = sum(d["errors"] for d in data_points)
+            total_security = sum(d["security_issues"] for d in data_points)
+            total_warnings = sum(d["warnings"] for d in data_points)
+            total_issues = sum(d["total"] for d in data_points)
+            
+            # Determine trend
+            if len(data_points) >= 2:
+                first_half = data_points[:len(data_points)//2]
+                second_half = data_points[len(data_points)//2:]
+                
+                first_avg = sum(d["total"] for d in first_half) / len(first_half) if first_half else 0
+                second_avg = sum(d["total"] for d in second_half) / len(second_half) if second_half else 0
+                
+                if second_avg < first_avg * 0.9:
+                    trend = "improving"
+                elif second_avg > first_avg * 1.1:
+                    trend = "declining"
+                else:
+                    trend = "stable"
+            else:
+                trend = "insufficient_data"
+            
+            result = {
+                "timeframe": timeframe,
+                "data_points": data_points,
+                "summary": {
+                    "total_errors": total_errors,
+                    "total_security_issues": total_security,
+                    "total_warnings": total_warnings,
+                    "total_issues": total_issues,
+                    "trend": trend
+                },
+                "generated_at": datetime.utcnow().isoformat()
+            }
+            
+            # Cache the result
+            self._set_cached_data(cache_key, result)
+            logger.info(f"Issue trends calculated and cached for user {user_id}, timeframe {timeframe}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error calculating issue trends for user {user_id}: {e}", exc_info=True)
+            return {
+                "timeframe": timeframe,
+                "data_points": [],
+                "summary": {
+                    "total_errors": 0,
+                    "total_security_issues": 0,
+                    "total_warnings": 0,
+                    "total_issues": 0,
+                    "trend": "unknown"
+                },
+                "generated_at": datetime.utcnow().isoformat()
+            }
+    
+    async def get_criticality_distribution(
+        self,
+        user_id: int,
+        timeframe: str = "30d"
+    ) -> Dict[str, Any]:
+        """
+        Get criticality/severity distribution of issues for a user.
+        
+        Args:
+            user_id: User ID to get distribution for
+            timeframe: Time period (7d, 30d, 90d, 1y)
+            
+        Returns:
+            Dict containing severity distribution data
+            
+        Requirements: 5.1, 5.2, 5.3, 5.4
+        """
+        from ..models.analysis import DirectAnalysis
+        from ..models.feedback import Issue
+        
+        cache_key = self._get_cache_key("criticality_distribution", user_id=user_id, timeframe=timeframe)
+        
+        # Try to get from cache first
+        cached_data = self._get_cached_data(cache_key)
+        if cached_data:
+            logger.info(f"Cache hit for criticality distribution: user {user_id}, timeframe {timeframe}")
+            return cached_data
+        
+        try:
+            # Calculate date range
+            days_map = {"7d": 7, "30d": 30, "90d": 90, "1y": 365}
+            days = days_map.get(timeframe, 30)
+            start_date = datetime.utcnow() - timedelta(days=days)
+            
+            # Get issues for user's analyses in timeframe
+            issues = self.db.query(Issue).join(DirectAnalysis).filter(
+                and_(
+                    DirectAnalysis.user_id == user_id,
+                    DirectAnalysis.created_at >= start_date
+                )
+            ).all()
+            
+            # Categorize by severity
+            distribution = {
+                "severe": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0
+            }
+            
+            for issue in issues:
+                severity = issue.severity.lower() if issue.severity else "unknown"
+                
+                if severity in ["critical", "severe"]:
+                    distribution["severe"] += 1
+                elif severity == "high":
+                    distribution["high"] += 1
+                elif severity == "medium":
+                    distribution["medium"] += 1
+                elif severity == "low":
+                    distribution["low"] += 1
+            
+            total_issues = len(issues)
+            
+            # Calculate percentages and add details
+            distribution_with_details = {}
+            for severity, count in distribution.items():
+                percentage = (count / total_issues * 100) if total_issues > 0 else 0.0
+                distribution_with_details[severity] = {
+                    "count": count,
+                    "percentage": round(percentage, 2)
+                }
+            
+            # Get breakdown by issue type for each severity
+            severity_breakdown = {}
+            for severity in distribution.keys():
+                severity_issues = [i for i in issues if i.severity and i.severity.lower() in self._get_severity_aliases(severity)]
+                pattern_counts = Counter(i.pattern_type for i in severity_issues if i.pattern_type)
+                severity_breakdown[severity] = dict(pattern_counts.most_common(5))
+            
+            result = {
+                "timeframe": timeframe,
+                "distribution": distribution_with_details,
+                "total_issues": total_issues,
+                "severity_breakdown": severity_breakdown,
+                "generated_at": datetime.utcnow().isoformat()
+            }
+            
+            # Cache the result
+            self._set_cached_data(cache_key, result)
+            logger.info(f"Criticality distribution calculated and cached for user {user_id}, timeframe {timeframe}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error calculating criticality distribution for user {user_id}: {e}", exc_info=True)
+            return {
+                "timeframe": timeframe,
+                "distribution": {
+                    "severe": {"count": 0, "percentage": 0.0},
+                    "high": {"count": 0, "percentage": 0.0},
+                    "medium": {"count": 0, "percentage": 0.0},
+                    "low": {"count": 0, "percentage": 0.0}
+                },
+                "total_issues": 0,
+                "severity_breakdown": {},
+                "generated_at": datetime.utcnow().isoformat()
+            }
+    
+    def _get_severity_aliases(self, severity: str) -> List[str]:
+        """Get list of severity aliases for categorization."""
+        aliases = {
+            "severe": ["critical", "severe"],
+            "high": ["high"],
+            "medium": ["medium", "moderate"],
+            "low": ["low", "minor", "info"]
+        }
+        return aliases.get(severity, [severity])
+
+
+    async def get_issue_trends(
+        self,
+        user_id: int,
+        timeframe: str = "30d"
+    ) -> Dict[str, Any]:
+        """
+        Get issue trends over time for a user.
+        
+        Requirements: 4.1, 4.2 - Issue trends visualization
+        """
+        from app.models.analysis import DirectAnalysis
+        
+        # Calculate date range
+        days = int(timeframe.replace('d', ''))
+        start_date = datetime.utcnow() - timedelta(days=days)
+        
+        # Query analyses in timeframe
+        analyses = self.db.query(DirectAnalysis).filter(
+            DirectAnalysis.user_id == user_id,
+            DirectAnalysis.created_at >= start_date,
+            DirectAnalysis.status == "completed"
+        ).order_by(DirectAnalysis.created_at).all()
+        
+        # Group by date
+        data_by_date = defaultdict(lambda: {
+            "errors": 0,
+            "security_issues": 0,
+            "warnings": 0,
+            "total": 0
+        })
+        
+        for analysis in analyses:
+            date_key = analysis.created_at.strftime("%Y-%m-%d")
+            
+            # Count issues by severity
+            if analysis.results and "issues" in analysis.results:
+                for issue in analysis.results["issues"]:
+                    severity = issue.get("severity", "info")
+                    if severity == "error":
+                        data_by_date[date_key]["errors"] += 1
+                    elif "security" in issue.get("category", "").lower():
+                        data_by_date[date_key]["security_issues"] += 1
+                    elif severity == "warning":
+                        data_by_date[date_key]["warnings"] += 1
+                    data_by_date[date_key]["total"] += 1
+        
+        # Convert to list of data points
+        data_points = []
+        for date_str in sorted(data_by_date.keys()):
+            data_points.append({
+                "date": date_str,
+                **data_by_date[date_str]
+            })
+        
+        # Calculate summary
+        total_errors = sum(p["errors"] for p in data_points)
+        total_warnings = sum(p["warnings"] for p in data_points)
+        total_security = sum(p["security_issues"] for p in data_points)
+        
+        # Determine trend
+        if len(data_points) >= 2:
+            first_half = data_points[:len(data_points)//2]
+            second_half = data_points[len(data_points)//2:]
+            
+            first_avg = sum(p["total"] for p in first_half) / len(first_half) if first_half else 0
+            second_avg = sum(p["total"] for p in second_half) / len(second_half) if second_half else 0
+            
+            if second_avg < first_avg * 0.9:
+                trend = "improving"
+            elif second_avg > first_avg * 1.1:
+                trend = "declining"
+            else:
+                trend = "stable"
+        else:
+            trend = "insufficient_data"
+        
+        return {
+            "data_points": data_points,
+            "summary": {
+                "total_errors": total_errors,
+                "total_security": total_security,
+                "total_warnings": total_warnings,
+                "trend": trend
+            }
+        }
+    
+    async def get_criticality_distribution(
+        self,
+        user_id: int,
+        timeframe: str = "30d"
+    ) -> Dict[str, Any]:
+        """
+        Get criticality distribution for a user.
+        
+        Requirements: 5.1, 5.2 - Criticality distribution visualization
+        """
+        from app.models.analysis import DirectAnalysis
+        
+        # Calculate date range
+        days = int(timeframe.replace('d', ''))
+        start_date = datetime.utcnow() - timedelta(days=days)
+        
+        # Query analyses in timeframe
+        analyses = self.db.query(DirectAnalysis).filter(
+            DirectAnalysis.user_id == user_id,
+            DirectAnalysis.created_at >= start_date,
+            DirectAnalysis.status == "completed"
+        ).all()
+        
+        # Count issues by severity
+        severity_counts = {
+            "severe": 0,
+            "high": 0,
+            "medium": 0,
+            "low": 0
+        }
+        
+        total_issues = 0
+        
+        for analysis in analyses:
+            if analysis.results and "issues" in analysis.results:
+                for issue in analysis.results["issues"]:
+                    severity = issue.get("severity", "info").lower()
+                    
+                    # Map severities to categories
+                    if severity in ["critical", "error"]:
+                        if "security" in issue.get("category", "").lower():
+                            severity_counts["severe"] += 1
+                        else:
+                            severity_counts["high"] += 1
+                    elif severity == "warning":
+                        severity_counts["medium"] += 1
+                    else:
+                        severity_counts["low"] += 1
+                    
+                    total_issues += 1
+        
+        # Calculate percentages
+        distribution = {}
+        for severity, count in severity_counts.items():
+            percentage = (count / total_issues * 100) if total_issues > 0 else 0
+            distribution[severity] = {
+                "count": count,
+                "percentage": round(percentage, 2)
+            }
+        
+        return {
+            "distribution": distribution,
+            "total_issues": total_issues
+        }

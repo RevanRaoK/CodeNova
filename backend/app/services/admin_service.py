@@ -1,39 +1,70 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_
+from sqlalchemy import func, and_, or_, desc
 from datetime import datetime, timedelta
 import uuid
+import logging
 
 from app.models.users import User, UserRole
 from app.models.team import Team
 from app.models.feedback import FeedbackRecord
 from app.models.analysis import DirectAnalysis
+from app.models.audit_log import AuditLog
 from app.schemas.user import UserResponse, UserRoleUpdate
 from app.schemas.team import TeamCreate, TeamUpdate, TeamResponse, TeamAnalytics
+from app.services.audit_logger import AuditLogger
+
+logger = logging.getLogger(__name__)
 
 
 class AdminService:
     """
     Service for admin dashboard and user management operations.
     
-    Requirements covered: 3.1, 3.2, 3.3, 3.4, 3.5
+    Requirements covered: 7.1, 7.2, 7.3, 8.1, 8.2, 8.3
     """
     
     def __init__(self, db: Session):
         self.db = db
+        self.audit_logger = AuditLogger(db)
     
     # User Management Methods
     
-    async def get_all_users(self, team_id: Optional[str] = None, skip: int = 0, limit: int = 100) -> List[User]:
+    async def get_all_users(
+        self,
+        team_id: Optional[str] = None,
+        role: Optional[UserRole] = None,
+        is_active: Optional[bool] = None,
+        search: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[User]:
         """
-        Get all users with optional team filtering.
+        Get all users with optional filtering.
         
-        Requirements: 3.2 - Admin views all team members and their roles
+        Requirements: 3.2, 7.3 - Admin views all team members with search and filter
         """
         query = self.db.query(User)
         
         if team_id:
             query = query.filter(User.team_id == team_id)
+        
+        if role:
+            query = query.filter(User.role == role)
+        
+        if is_active is not None:
+            query = query.filter(User.is_active == is_active)
+        
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.filter(
+                or_(
+                    User.email.ilike(search_pattern),
+                    User.full_name.ilike(search_pattern),
+                    User.first_name.ilike(search_pattern),
+                    User.last_name.ilike(search_pattern)
+                )
+            )
             
         return query.offset(skip).limit(limit).all()
     
@@ -45,24 +76,27 @@ class AdminService:
         """
         Update a user's role with admin authorization.
         
-        Requirements: 3.3 - Admin modifies user roles with immediate permission updates
+        Requirements: 7.2 - Admin modifies user roles with immediate permission updates
         """
         user = self.db.query(User).filter(User.id == user_id).first()
         if not user:
             return None
         
-        # Log the role change for audit purposes
-        await self._log_admin_action(
-            admin_user_id=admin_user_id,
-            action="role_update",
-            target_user_id=user_id,
-            details={"old_role": user.role.value, "new_role": role.value}
-        )
+        old_role = user.role
         
+        # Update role
         user.role = role
         user.updated_at = datetime.utcnow()
         self.db.commit()
         self.db.refresh(user)
+        
+        # Log the role change using AuditLogger
+        self.audit_logger.log_user_action(
+            admin_user_id=admin_user_id,
+            target_user_id=user_id,
+            action="update_role",
+            changes={"role": {"old": old_role.value, "new": role.value}}
+        )
         
         return user
     
@@ -72,17 +106,21 @@ class AdminService:
         if not user:
             return None
         
-        await self._log_admin_action(
-            admin_user_id=admin_user_id,
-            action="status_update",
-            target_user_id=user_id,
-            details={"old_status": user.is_active, "new_status": is_active}
-        )
+        old_status = user.is_active
         
+        # Update status
         user.is_active = is_active
         user.updated_at = datetime.utcnow()
         self.db.commit()
         self.db.refresh(user)
+        
+        # Log the status change
+        self.audit_logger.log_user_action(
+            admin_user_id=admin_user_id,
+            target_user_id=user_id,
+            action="update_status",
+            changes={"is_active": {"old": old_status, "new": is_active}}
+        )
         
         return user
     
@@ -94,17 +132,21 @@ class AdminService:
         if not user or not team:
             return None
         
-        await self._log_admin_action(
-            admin_user_id=admin_user_id,
-            action="team_assignment",
-            target_user_id=user_id,
-            details={"old_team_id": user.team_id, "new_team_id": team_id}
-        )
+        old_team_id = user.team_id
         
+        # Update team assignment
         user.team_id = team_id
         user.updated_at = datetime.utcnow()
         self.db.commit()
         self.db.refresh(user)
+        
+        # Log the team assignment
+        self.audit_logger.log_user_action(
+            admin_user_id=admin_user_id,
+            target_user_id=user_id,
+            action="assign_team",
+            changes={"team_id": {"old": old_team_id, "new": team_id}}
+        )
         
         return user
     
@@ -114,7 +156,7 @@ class AdminService:
         """
         Create a new team.
         
-        Requirements: 3.5 - Admin manages teams (creating, editing, deleting team structures)
+        Requirements: 8.2 - Admin manages teams (creating, editing, deleting team structures)
         """
         team = Team(
             id=str(uuid.uuid4()),
@@ -127,10 +169,12 @@ class AdminService:
         self.db.commit()
         self.db.refresh(team)
         
-        await self._log_admin_action(
+        # Log team creation
+        self.audit_logger.log_team_action(
             admin_user_id=admin_user_id,
-            action="team_create",
-            details={"team_id": team.id, "team_name": team.name}
+            team_id=team.id,
+            action="create",
+            details={"team_name": team.name, "settings": team.settings}
         )
         
         return team
@@ -149,22 +193,30 @@ class AdminService:
         if not team:
             return None
         
-        old_data = {"name": team.name, "settings": team.settings}
+        old_name = team.name
+        old_settings = team.settings
         
-        if team_data.name is not None:
+        changes = {}
+        if team_data.name is not None and team_data.name != team.name:
             team.name = team_data.name
-        if team_data.settings is not None:
+            changes["name"] = {"old": old_name, "new": team.name}
+        
+        if team_data.settings is not None and team_data.settings != team.settings:
             team.settings = team_data.settings
+            changes["settings"] = {"old": old_settings, "new": team.settings}
         
         team.updated_at = datetime.utcnow()
         self.db.commit()
         self.db.refresh(team)
         
-        await self._log_admin_action(
-            admin_user_id=admin_user_id,
-            action="team_update",
-            details={"team_id": team_id, "old_data": old_data, "new_data": {"name": team.name, "settings": team.settings}}
-        )
+        # Log team update
+        if changes:
+            self.audit_logger.log_team_action(
+                admin_user_id=admin_user_id,
+                team_id=team_id,
+                action="update",
+                changes=changes
+            )
         
         return team
     
@@ -174,6 +226,11 @@ class AdminService:
         if not team:
             return False
         
+        team_name = team.name
+        
+        # Count members before deletion
+        member_count = self.db.query(User).filter(User.team_id == team_id).count()
+        
         # Unassign all users from this team
         self.db.query(User).filter(User.team_id == team_id).update({"team_id": None})
         
@@ -181,10 +238,12 @@ class AdminService:
         self.db.delete(team)
         self.db.commit()
         
-        await self._log_admin_action(
+        # Log team deletion
+        self.audit_logger.log_team_action(
             admin_user_id=admin_user_id,
-            action="team_delete",
-            details={"team_id": team_id, "team_name": team.name}
+            team_id=team_id,
+            action="delete",
+            details={"team_name": team_name, "member_count": member_count}
         )
         
         return True
@@ -273,6 +332,87 @@ class AdminService:
         
         return analytics
     
+    # Dashboard Metrics
+    
+    async def get_dashboard_metrics(self) -> Dict[str, Any]:
+        """
+        Get dashboard metrics including reviews completed today.
+        
+        Requirements: 1.1, 1.2, 1.3, 1.4, 12.1, 12.2, 12.3, 12.4, 12.5
+        """
+        # Get total users count
+        total_users = self.db.query(func.count(User.id)).scalar() or 0
+        
+        # Get active teams count (teams with at least one member)
+        active_teams = self.db.query(func.count(func.distinct(User.team_id))).filter(
+            User.team_id.isnot(None)
+        ).scalar() or 0
+        
+        # Get reviews completed today
+        today = datetime.utcnow().date()
+        reviews_today = self.db.query(func.count(DirectAnalysis.id)).filter(
+            and_(
+                DirectAnalysis.status == "completed",
+                func.date(DirectAnalysis.completed_at) == today
+            )
+        ).scalar() or 0
+        
+        # Get recent activities (last 10 activities)
+        recent_activities = []
+        
+        # Get recent completed analyses
+        recent_analyses = self.db.query(DirectAnalysis).filter(
+            DirectAnalysis.status == "completed"
+        ).order_by(DirectAnalysis.completed_at.desc()).limit(5).all()
+        
+        for analysis in recent_analyses:
+            user = self.db.query(User).filter(User.id == analysis.user_id).first()
+            if user:
+                recent_activities.append({
+                    "id": analysis.id,
+                    "type": "review_completed",
+                    "user_id": user.id,
+                    "user_name": user.full_name or user.email,
+                    "description": f"Completed code review in {analysis.language}",
+                    "timestamp": analysis.completed_at.isoformat() if analysis.completed_at else analysis.created_at.isoformat()
+                })
+        
+        # Get recent user registrations
+        recent_users = self.db.query(User).order_by(User.created_at.desc()).limit(3).all()
+        for user in recent_users:
+            recent_activities.append({
+                "id": f"user_{user.id}",
+                "type": "user_created",
+                "user_id": user.id,
+                "user_name": user.full_name or user.email,
+                "description": f"New user registered",
+                "timestamp": user.created_at.isoformat()
+            })
+        
+        # Get recent team creations
+        recent_teams = self.db.query(Team).order_by(Team.created_at.desc()).limit(2).all()
+        for team in recent_teams:
+            admin_user = self.db.query(User).filter(User.id == team.admin_id).first()
+            recent_activities.append({
+                "id": f"team_{team.id}",
+                "type": "team_created",
+                "user_id": team.admin_id,
+                "user_name": admin_user.full_name or admin_user.email if admin_user else "Unknown",
+                "description": f"Created team '{team.name}'",
+                "timestamp": team.created_at.isoformat()
+            })
+        
+        # Sort activities by timestamp (most recent first) and limit to 10
+        recent_activities.sort(key=lambda x: x["timestamp"], reverse=True)
+        recent_activities = recent_activities[:10]
+        
+        return {
+            "total_users": total_users,
+            "active_teams": active_teams,
+            "reviews_today": reviews_today,
+            "recent_activities": recent_activities
+        }
+    
     # Platform-wide Analytics
     
     async def get_platform_analytics(self) -> Dict[str, Any]:
@@ -287,78 +427,171 @@ class AdminService:
         total_analyses = self.db.query(func.count(DirectAnalysis.id)).scalar() or 0
         total_feedback = self.db.query(func.count(FeedbackRecord.id)).scalar() or 0
         
+        # Calculate total issues
+        from app.models.feedback import Issue
+        total_issues = self.db.query(func.count(Issue.id)).scalar() or 0
+        
+        # Calculate average issues per review
+        avg_issues_per_review = (total_issues / total_analyses) if total_analyses > 0 else 0.0
+        
+        # Calculate feedback participation rate
+        accepted_feedback = self.db.query(func.count(FeedbackRecord.id)).filter(
+            FeedbackRecord.feedback_type == "accept"
+        ).scalar() or 0
+        feedback_participation_rate = (accepted_feedback / total_feedback) if total_feedback > 0 else 0.0
+        
         # User role distribution
         role_distribution = {}
         for role in UserRole:
             count = self.db.query(func.count(User.id)).filter(User.role == role).scalar() or 0
             role_distribution[role.value] = count
         
-        # Recent activity (last 7 days)
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        # Recent activity (last 30 days)
+        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        active_users_30d = self.db.query(func.count(func.distinct(DirectAnalysis.user_id))).filter(
+            DirectAnalysis.created_at >= thirty_days_ago
+        ).scalar() or 0
+        
         recent_users = self.db.query(func.count(User.id)).filter(
-            User.created_at >= seven_days_ago
+            User.created_at >= thirty_days_ago
         ).scalar() or 0
         
         recent_analyses = self.db.query(func.count(DirectAnalysis.id)).filter(
-            DirectAnalysis.created_at >= seven_days_ago
+            DirectAnalysis.created_at >= thirty_days_ago
+        ).scalar() or 0
+        
+        # Get reviews completed today
+        today = datetime.utcnow().date()
+        reviews_today = self.db.query(func.count(DirectAnalysis.id)).filter(
+            and_(
+                DirectAnalysis.status == "completed",
+                func.date(DirectAnalysis.completed_at) == today
+            )
         ).scalar() or 0
         
         return {
             "total_users": total_users,
             "active_users": active_users,
+            "inactive_users": total_users - active_users,  # Add missing field
             "total_teams": total_teams,
-            "total_analyses": total_analyses,
+            "total_analyses": total_analyses,  # Add missing field (was total_reviews)
             "total_feedback": total_feedback,
+            "total_issues_found": total_issues,
+            "avg_issues_per_review": round(avg_issues_per_review, 2),
+            "feedback_acceptance_rate": round(feedback_participation_rate, 2),  # Rename to match schema
+            "reviews_today": reviews_today,  # Add reviews completed today
+            "active_users_30d": active_users_30d,
             "role_distribution": role_distribution,
             "recent_activity": {
-                "new_users_7d": recent_users,
-                "new_analyses_7d": recent_analyses
+                "new_users_30d": recent_users,
+                "new_analyses_30d": recent_analyses,
+                "active_users_30d": active_users_30d
+            },
+            "top_languages": [],  # Add missing field
+            "growth_metrics": {}   # Add missing field
+        }
+    
+    # Feedback Statistics
+    
+    def get_feedback_statistics(self, team_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Calculate feedback statistics with optional team filtering.
+        
+        Requirements: 8.1, 8.2, 8.3, 8.4, 8.5
+        """
+        # Base query for feedback records
+        query = self.db.query(FeedbackRecord)
+        
+        # Apply team filtering if specified
+        if team_id:
+            # Get users in the specified team
+            team_user_ids = self.db.query(User.id).filter(User.team_id == team_id).subquery()
+            query = query.filter(FeedbackRecord.user_id.in_(team_user_ids))
+        
+        # Get total feedback count
+        total_feedback_count = query.count()
+        
+        if total_feedback_count == 0:
+            return {
+                "total_feedback_count": 0,
+                "acceptance_rate": 0.0,
+                "rejection_rate": 0.0,
+                "modification_rate": 0.0,
+                "ignore_rate": 0.0,
+                "feedback_breakdown": {
+                    "accept": 0,
+                    "reject": 0,
+                    "modify": 0,
+                    "ignore": 0
+                }
             }
+        
+        # Get feedback breakdown by type
+        feedback_breakdown = {}
+        for feedback_type in ["accept", "reject", "modify", "ignore"]:
+            count = query.filter(FeedbackRecord.feedback_type == feedback_type).count()
+            feedback_breakdown[feedback_type] = count
+        
+        # Calculate rates
+        acceptance_rate = (feedback_breakdown["accept"] / total_feedback_count) * 100
+        rejection_rate = (feedback_breakdown["reject"] / total_feedback_count) * 100
+        modification_rate = (feedback_breakdown["modify"] / total_feedback_count) * 100
+        ignore_rate = (feedback_breakdown["ignore"] / total_feedback_count) * 100
+        
+        return {
+            "total_feedback_count": total_feedback_count,
+            "acceptance_rate": round(acceptance_rate, 2),
+            "rejection_rate": round(rejection_rate, 2),
+            "modification_rate": round(modification_rate, 2),
+            "ignore_rate": round(ignore_rate, 2),
+            "feedback_breakdown": feedback_breakdown
         }
     
     # Audit Logging
     
-    async def _log_admin_action(
+    async def get_audit_logs(
         self, 
-        admin_user_id: int, 
-        action: str, 
-        target_user_id: Optional[int] = None,
-        details: Optional[Dict[str, Any]] = None
-    ):
+        admin_user_id: Optional[int] = None,
+        action: Optional[str] = None,
+        resource_type: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        skip: int = 0,
+        limit: int = 50
+    ) -> Tuple[List[AuditLog], int]:
         """
-        Log admin actions for audit purposes.
+        Get audit logs with filtering options.
         
-        Requirements: 3.5 - Implement audit logging for admin actions
+        Args:
+            admin_user_id: Filter by admin user ID
+            action: Filter by action type
+            resource_type: Filter by resource type
+            start_date: Filter by start date
+            end_date: Filter by end date
+            skip: Number of records to skip
+            limit: Maximum number of records to return
+            
+        Returns:
+            Tuple of (audit logs list, total count)
         """
-        # For now, we'll store audit logs in the user preferences
-        # In a production system, you'd want a dedicated audit_logs table
-        admin_user = self.db.query(User).filter(User.id == admin_user_id).first()
-        if not admin_user:
-            return
+        query = self.db.query(AuditLog)
         
-        if "audit_logs" not in admin_user.preferences:
-            admin_user.preferences["audit_logs"] = []
+        if admin_user_id:
+            query = query.filter(AuditLog.user_id == admin_user_id)
         
-        audit_entry = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "action": action,
-            "target_user_id": target_user_id,
-            "details": details or {}
-        }
+        if action:
+            query = query.filter(AuditLog.action == action)
         
-        admin_user.preferences["audit_logs"].append(audit_entry)
+        if resource_type:
+            query = query.filter(AuditLog.resource_type == resource_type)
         
-        # Keep only the last 100 audit log entries to prevent unbounded growth
-        if len(admin_user.preferences["audit_logs"]) > 100:
-            admin_user.preferences["audit_logs"] = admin_user.preferences["audit_logs"][-100:]
+        if start_date:
+            query = query.filter(AuditLog.timestamp >= start_date)
         
-        self.db.commit()
-    
-    async def get_audit_logs(self, admin_user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get audit logs for an admin user."""
-        admin_user = self.db.query(User).filter(User.id == admin_user_id).first()
-        if not admin_user or "audit_logs" not in admin_user.preferences:
-            return []
+        if end_date:
+            query = query.filter(AuditLog.timestamp <= end_date)
         
-        logs = admin_user.preferences["audit_logs"]
-        return logs[-limit:] if len(logs) > limit else logs
+        total = query.count()
+        logs = query.order_by(desc(AuditLog.timestamp)).offset(skip).limit(limit).all()
+        
+        return logs, total

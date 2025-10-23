@@ -2,12 +2,15 @@ import React, { useState, useRef, useCallback } from 'react'
 import { MonacoEditor } from '../components/MonacoEditor'
 import { ReviewResults } from '../components/ReviewResults'
 import { FileUploadZone } from '../components/FileUploadZone'
+import MultiFileUploadZone from '../components/MultiFileUploadZone'
+import { BatchProgressTracker } from '../components/BatchProgressTracker'
+import { BatchResultsDisplay } from '../components/BatchResultsDisplay'
 import StatusIndicator from '../components/StatusIndicator'
 import {
   ArrowRight,
   FileText,
-  GitBranch,
   Loader2,
+  CheckCircleIcon,
 } from 'lucide-react'
 import { analysisService } from '../services/apiService'
 import { processUploadedFile, getLanguageFromFilename } from '../utils/fileUtils'
@@ -19,7 +22,7 @@ export function CodeReview() {
   const [code, setCode] = useState('')
   const [isReviewing, setIsReviewing] = useState(false)
   const [reviewResults, setReviewResults] = useState([])
-  const [reviewTab, setReviewTab] = useState('editor') // 'editor', 'file', 'git'
+  const [reviewTab, setReviewTab] = useState('editor') // 'editor', 'file', 'multi-file'
   const [analysisError, setAnalysisError] = useState('')
   const [uploadProgress, setUploadProgress] = useState(0)
   const [selectedLanguage, setSelectedLanguage] = useState('javascript')
@@ -27,12 +30,57 @@ export function CodeReview() {
   const [editorMarkers, setEditorMarkers] = useState([])
   const [analysisMetrics, setAnalysisMetrics] = useState(null)
   const [analysisProgress, setAnalysisProgress] = useState(0)
+  const [showHistory, setShowHistory] = useState(false)
+  const [analysisHistory, setAnalysisHistory] = useState([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  const [multiFileProgress, setMultiFileProgress] = useState({})
+  const [batchResults, setBatchResults] = useState(null)
+  const [batchId, setBatchId] = useState(null)
+  const [showBatchProgress, setShowBatchProgress] = useState(false)
+  const [batchProcessingComplete, setBatchProcessingComplete] = useState(false)
   const editorRef = useRef(null)
   
   const { showSuccess, showError, showWarning, showLoading, removeNotification, showConfirmation } = useNotification()
 
+  // Fetch analysis history
+  const fetchAnalysisHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      const history = await analysisService.getUserAnalyses({ page: 1, page_size: 10 });
+      setAnalysisHistory(history.analyses);
+      setShowHistory(true);
+    } catch (error) {
+      console.error('Failed to fetch history:', error);
+      showError('Failed to load analysis history');
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  // Load a previous analysis
+  const loadPreviousAnalysis = async (analysisId) => {
+    try {
+      const result = await analysisService.getAnalysisById(analysisId);
+      setReviewResults(result.issues);
+      setAnalysisMetrics(result.metrics);
+      const markers = convertResultsToMarkers(result.issues);
+      setEditorMarkers(markers);
+      setShowHistory(false);
+      showSuccess('Previous analysis loaded successfully');
+    } catch (error) {
+      console.error('Failed to load analysis:', error);
+      showError('Failed to load analysis results');
+    }
+  };
+
   // Real function to analyze code using the API service
-  const handleReview = async () => {
+  const handleReview = useCallback(async () => {
+    // Prevent multiple simultaneous requests
+    if (isReviewing) {
+      console.log('Analysis already in progress, ignoring duplicate request');
+      return;
+    }
+    
     if (!code.trim()) {
       showWarning('Please enter some code to analyze.');
       return;
@@ -69,7 +117,18 @@ export function CodeReview() {
       setAnalysisProgress(100);
 
       console.log('Analysis result:', result)
-      const issues = result.issues || []
+      
+      // Extract issues from the result - handle both direct issues array and nested structure
+      let issues = [];
+      if (Array.isArray(result.issues)) {
+        issues = result.issues;
+      } else if (Array.isArray(result)) {
+        issues = result;
+      } else if (result.data && Array.isArray(result.data.issues)) {
+        issues = result.data.issues;
+      }
+      
+      console.log('Extracted issues:', issues);
       setReviewResults(issues)
       
       // Set analysis metrics if available
@@ -120,7 +179,7 @@ export function CodeReview() {
       setIsReviewing(false)
       setAnalysisProgress(0)
     }
-  }
+  }, [isReviewing, code, selectedLanguage, showWarning, showLoading, showSuccess, showError, removeNotification])
 
   // Handle file upload and analysis (for the Upload File tab)
   const handleFileUpload = async (file) => {
@@ -233,6 +292,105 @@ export function CodeReview() {
       showError(error.message || 'Failed to process file. Please try again.');
     }
   }
+
+  // Handle multi-file upload with background processing
+  const handleMultiFileUpload = async (files) => {
+    if (!files || files.length === 0) return;
+
+    setIsReviewing(true);
+    setAnalysisError('');
+
+    const loadingId = showLoading(`Uploading ${files.length} file(s)...`);
+
+    try {
+      // Upload files (backend will process async)
+      const result = await analysisService.uploadMultipleFiles(files);
+
+      console.log('Upload result:', result);
+      
+      removeNotification(loadingId);
+      showSuccess(`${files.length} file(s) uploaded! Analysis running in background.`, {
+        duration: 5000
+      });
+
+      // Poll for completion
+      if (result.batchId) {
+        setTimeout(() => checkBatchCompletion(result.batchId), 3000);
+      }
+
+    } catch (error) {
+      console.error('Upload failed:', error);
+      removeNotification(loadingId);
+      showError(error.message || 'Upload failed. Please try again.');
+    } finally {
+      setIsReviewing(false);
+    }
+  };
+
+  // Check batch completion in background
+  const checkBatchCompletion = async (batchId, attempt = 0) => {
+    if (attempt > 30) return; // Stop after 1 minute
+
+    try {
+      const status = await analysisService.getBatchAnalysisStatus(batchId);
+      
+      if (status.status === 'completed' || status.status === 'partial') {
+        showSuccess(`Analysis complete! ${status.successful_files} file(s) analyzed.`, {
+          duration: 10000
+        });
+      } else if (status.status === 'failed') {
+        showError('Analysis failed.');
+      } else {
+        // Still processing, check again
+        setTimeout(() => checkBatchCompletion(batchId, attempt + 1), 2000);
+      }
+    } catch (error) {
+      console.error('Status check failed:', error);
+    }
+  };
+
+  // Handle batch processing completion
+  const handleBatchComplete = async (batchStatus) => {
+    try {
+      // Fetch detailed results
+      const results = await analysisService.getBatchAnalysisResults(batchId);
+      setBatchResults(results);
+      setBatchProcessingComplete(true);
+      setShowBatchProgress(false);
+      
+      showSuccess(`Batch processing completed! ${results.successful_files} files analyzed.`, {
+        title: 'Analysis Complete'
+      });
+    } catch (error) {
+      console.error('Failed to fetch batch results:', error);
+      showError('Failed to fetch batch results. Please try refreshing.', {
+        title: 'Results Error'
+      });
+    }
+  };
+
+  // Handle batch processing error
+  const handleBatchError = (error) => {
+    console.error('Batch processing error:', error);
+    setShowBatchProgress(false);
+    showError(error.message || 'Batch processing failed. Please try again.', {
+      title: 'Processing Failed'
+    });
+  };
+
+  // Refresh batch results
+  const handleRefreshBatchResults = async () => {
+    if (!batchId) return;
+    
+    try {
+      const results = await analysisService.getBatchAnalysisResults(batchId);
+      setBatchResults(results);
+      showSuccess('Results refreshed successfully');
+    } catch (error) {
+      console.error('Failed to refresh results:', error);
+      showError('Failed to refresh results. Please try again.');
+    }
+  };
 
   // Handle Monaco Editor mount
   const handleEditorMount = (editor, monaco) => {
@@ -348,24 +506,14 @@ export function CodeReview() {
             Code Editor
           </button>
           <button
-            onClick={() => setReviewTab('file')}
+            onClick={() => setReviewTab('upload')}
             className={`py-3 border-b-2 font-medium text-sm ${
-              reviewTab === 'file'
+              reviewTab === 'upload'
                 ? 'border-indigo-500 text-indigo-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
-            Upload File
-          </button>
-          <button
-            onClick={() => setReviewTab('git')}
-            className={`py-3 border-b-2 font-medium text-sm ${
-              reviewTab === 'git'
-                ? 'border-indigo-500 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Git Repository
+            Upload Files
           </button>
         </nav>
       </div>
@@ -460,71 +608,13 @@ export function CodeReview() {
           />
           </div>
         )}
-        {reviewTab === 'file' && (
-          <FileUploadZone 
-            onFileUpload={handleFileUpload}
-            isUploading={isReviewing}
-            uploadProgress={uploadProgress}
-            error={analysisError}
-          />
-        )}
-        {reviewTab === 'git' && (
-          <div className="border border-gray-300 rounded-lg p-6">
-            <div className="flex items-center mb-4">
-              <GitBranch className="h-6 w-6 text-gray-400 mr-3" />
-              <h3 className="font-medium">Connect to Git Repository</h3>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label
-                  htmlFor="repo-url"
-                  className="block text-sm font-medium text-gray-700 mb-1"
-                >
-                  Repository URL
-                </label>
-                <input
-                  type="text"
-                  id="repo-url"
-                  className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  placeholder="https://github.com/username/repository.git"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="branch"
-                  className="block text-sm font-medium text-gray-700 mb-1"
-                >
-                  Branch
-                </label>
-                <input
-                  type="text"
-                  id="branch"
-                  className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  placeholder="main"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="access-token"
-                  className="block text-sm font-medium text-gray-700 mb-1"
-                >
-                  Access Token (for private repositories)
-                </label>
-                <input
-                  type="password"
-                  id="access-token"
-                  className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  placeholder="••••••••••••••••"
-                />
-              </div>
-              <button
-                type="button"
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-              >
-                <FileText className="mr-2 h-4 w-4" />
-                Connect Repository
-              </button>
-            </div>
+        {reviewTab === 'upload' && (
+          <div className="space-y-6">
+            <MultiFileUploadZone 
+              onUploadComplete={handleMultiFileUpload}
+              maxFiles={10}
+              maxSize={5 * 1024 * 1024} // 5MB per file
+            />
           </div>
         )}
       </div>
@@ -537,9 +627,15 @@ export function CodeReview() {
       )}
 
       {/* Review Button */}
-      <div className="mb-8">
+      <div className="mb-8 flex items-center gap-4">
         <button
-          onClick={handleReview}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!isReviewing && code.trim()) {
+              handleReview();
+            }
+          }}
           disabled={isReviewing || !code.trim()}
           className={`inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white ${
             isReviewing || !code.trim()
@@ -565,6 +661,24 @@ export function CodeReview() {
           )}
         </button>
         
+        <button
+          onClick={fetchAnalysisHistory}
+          disabled={loadingHistory}
+          className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+        >
+          {loadingHistory ? (
+            <>
+              <Loader2 className="animate-spin mr-2 h-4 w-4" />
+              Loading...
+            </>
+          ) : (
+            <>
+              <FileText className="mr-2 h-4 w-4" />
+              View History
+            </>
+          )}
+        </button>
+        
         {/* Progress indicator during analysis */}
         {isReviewing && (
           <div className="mt-4">
@@ -579,6 +693,49 @@ export function CodeReview() {
         )}
       </div>
 
+      {/* Analysis History */}
+      {showHistory && (
+        <div className="mt-6 bg-white shadow rounded-lg p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-medium">Analysis History</h3>
+            <button
+              onClick={() => setShowHistory(false)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              ✕
+            </button>
+          </div>
+          {analysisHistory.length === 0 ? (
+            <p className="text-gray-500">No previous analyses found.</p>
+          ) : (
+            <div className="space-y-4">
+              {analysisHistory.map((analysis) => (
+                <div key={analysis.id} className="border-b pb-4 last:border-b-0">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <p className="font-medium">{analysis.filename || 'Unnamed Analysis'}</p>
+                      <p className="text-sm text-gray-500">
+                        {analysis.language} • {analysis.issuesCount} issues 
+                        {analysis.errorsCount > 0 && ` (${analysis.errorsCount} errors)`}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {new Date(analysis.createdAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => loadPreviousAnalysis(analysis.id)}
+                      className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                    >
+                      View Results
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Results */}
       {(reviewResults.length > 0 || (!isReviewing && code.trim() && reviewResults.length === 0 && !analysisError)) && (
         <div className="mt-8">
@@ -590,6 +747,57 @@ export function CodeReview() {
             onIssueNavigate={handleResultIssueClick}
             onMarkersUpdate={setEditorMarkers}
           />
+        </div>
+      )}
+
+      {/* Multi-File Results */}
+      {batchResults && (
+        <div className="mt-8">
+          <h2 className="text-xl font-semibold mb-4">Multi-File Analysis Results</h2>
+          <div className="bg-white shadow rounded-lg p-6">
+            <div className="mb-4">
+              <h3 className="text-lg font-medium text-gray-900">Batch Analysis Summary</h3>
+              <p className="text-sm text-gray-500">
+                Batch ID: {batchId} • {batchResults.totalFiles} files processed
+              </p>
+            </div>
+            
+            {batchResults.files && batchResults.files.length > 0 ? (
+              <div className="space-y-6">
+                {batchResults.files.map((fileResult, index) => (
+                  <div key={index} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-md font-medium text-gray-900">
+                        {fileResult.filename}
+                      </h4>
+                      <div className="flex items-center space-x-2 text-sm text-gray-500">
+                        <span>{fileResult.language}</span>
+                        <span>•</span>
+                        <span>{fileResult.issues?.length || 0} issues</span>
+                      </div>
+                    </div>
+                    
+                    {fileResult.issues && fileResult.issues.length > 0 ? (
+                      <ReviewResults 
+                        issues={fileResult.issues}
+                        analysisMetrics={fileResult.metrics}
+                        showFileHeader={false}
+                      />
+                    ) : (
+                      <div className="text-center py-4 text-gray-500">
+                        <CheckCircleIcon className="mx-auto h-8 w-8 text-green-500 mb-2" />
+                        <p>No issues found in this file!</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <p>No results available yet. Files may still be processing.</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

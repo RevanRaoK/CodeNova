@@ -28,7 +28,6 @@ from app.schemas.analytics import (
     AnalyticsExportRequest, AnalyticsExportResponse, RealTimeAnalyticsUpdate,
     AnalyticsHealthCheck, TimeframeEnum
 )
-# DateRange import removed - using TimeframeEnum from analytics schema instead
 from app.models.users import User
 
 logger = logging.getLogger(__name__)
@@ -98,6 +97,178 @@ class WebSocketManager:
 
 # Global WebSocket manager instance
 websocket_manager = WebSocketManager()
+
+
+@router.get("/user-stats/{user_id}")
+async def get_user_stats_by_id(
+    user_id: int,
+    db: Session = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis_client),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get user statistics for a specific user including total reviews, analyses, success rate, and recent activity.
+    
+    Requirements: 1.1, 1.3, 1.4, 1.5, 1.6
+    """
+    try:
+        # Check if user is requesting their own data or has admin access
+        if user_id != current_user.id:
+            if not hasattr(current_user, 'role') or current_user.role != 'admin':
+                raise HTTPException(status_code=403, detail="Access denied. Can only view your own statistics.")
+        
+        analytics_service = AnalyticsService(db, redis_client)
+        result = await analytics_service.get_user_stats(user_id=user_id)
+        
+        return JSONResponse(content=result)
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user stats for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve user statistics")
+
+
+@router.get("/user-stats")
+async def get_current_user_stats(
+    db: Session = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis_client),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get user statistics for the current user including total reviews, analyses, success rate, and recent activity.
+    
+    Requirements: 1.1, 1.3, 1.4, 1.5, 1.6
+    """
+    try:
+        analytics_service = AnalyticsService(db, redis_client)
+        result = await analytics_service.get_user_stats(user_id=current_user.id)
+        
+        return JSONResponse(content=result)
+    
+    except Exception as e:
+        logger.error(f"Error getting user stats: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve user statistics")
+
+
+@router.get("/usage-trends")
+async def get_usage_trends(
+    timeframe: str = Query("30d", description="Time period for analysis (7d, 30d, 90d, 1y)"),
+    db: Session = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis_client),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get usage trends over time for the current user.
+    
+    Requirements: 1.3, 1.4, 1.5
+    """
+    try:
+        analytics_service = AnalyticsService(db, redis_client)
+        result = await analytics_service.get_usage_trends(
+            user_id=current_user.id,
+            timeframe=timeframe
+        )
+        
+        return JSONResponse(content=result)
+    
+    except Exception as e:
+        logger.error(f"Error getting usage trends: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve usage trends")
+
+
+@router.get("/feedback-distribution")
+async def get_feedback_distribution(
+    timeframe: str = Query("30d", description="Time period for analysis (7d, 30d, 90d, 1y)"),
+    db: Session = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis_client),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get feedback distribution by type for the current user.
+    
+    Requirements: 1.4, 1.5, 1.6
+    """
+    try:
+        analytics_service = AnalyticsService(db, redis_client)
+        result = await analytics_service.get_feedback_distribution(
+            user_id=current_user.id,
+            timeframe=timeframe
+        )
+        
+        return JSONResponse(content=result)
+    
+    except Exception as e:
+        logger.error(f"Error getting feedback distribution: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve feedback distribution")
+
+
+@router.get("/issue-trends")
+async def get_issue_trends(
+    timeframe: str = Query("30d", description="Time period for analysis (7d, 30d, 90d)"),
+    user_id: Optional[int] = Query(None, description="Filter by user ID (admin only)"),
+    db: Session = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis_client),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get issue trends over time showing errors, security issues, and warnings.
+    
+    Requirements: 4.1, 4.2, 4.3, 4.4, 4.5
+    """
+    try:
+        # Check admin access for other users' data
+        if user_id and user_id != current_user.id:
+            if not hasattr(current_user, 'role') or current_user.role != 'admin':
+                raise HTTPException(status_code=403, detail="Admin access required to view other users' data")
+        
+        target_user_id = user_id if user_id and hasattr(current_user, 'role') and current_user.role == 'admin' else current_user.id
+        
+        analytics_service = AnalyticsService(db, redis_client)
+        result = await analytics_service.get_issue_trends(
+            user_id=target_user_id,
+            timeframe=timeframe
+        )
+        
+        return JSONResponse(content=result)
+    
+    except Exception as e:
+        logger.error(f"Error getting issue trends: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve issue trends")
+
+
+@router.get("/criticality-distribution")
+async def get_criticality_distribution(
+    timeframe: str = Query("30d", description="Time period for analysis (7d, 30d, 90d)"),
+    user_id: Optional[int] = Query(None, description="Filter by user ID (admin only)"),
+    db: Session = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis_client),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get criticality distribution showing severity breakdown of issues.
+    
+    Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
+    """
+    try:
+        # Check admin access for other users' data
+        if user_id and user_id != current_user.id:
+            if not hasattr(current_user, 'role') or current_user.role != 'admin':
+                raise HTTPException(status_code=403, detail="Admin access required to view other users' data")
+        
+        target_user_id = user_id if user_id and hasattr(current_user, 'role') and current_user.role == 'admin' else current_user.id
+        
+        analytics_service = AnalyticsService(db, redis_client)
+        result = await analytics_service.get_criticality_distribution(
+            user_id=target_user_id,
+            timeframe=timeframe
+        )
+        
+        return JSONResponse(content=result)
+    
+    except Exception as e:
+        logger.error(f"Error getting criticality distribution: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve criticality distribution")
 
 
 @router.get("/acceptance-rates", response_model=AcceptanceRatesResponse)
@@ -227,6 +398,32 @@ async def get_learning_progress(
         raise HTTPException(status_code=500, detail="Failed to retrieve learning progress")
 
 
+@router.get("/dashboard-data")
+async def get_dashboard_data(
+    timeframe: str = Query("30d", description="Time period for analysis (7d, 30d, 90d, 1y)"),
+    db: Session = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis_client),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get comprehensive dashboard data for the current user.
+    
+    Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6
+    """
+    try:
+        analytics_service = AnalyticsService(db, redis_client)
+        result = await analytics_service.get_dashboard_data(
+            user_id=current_user.id,
+            timeframe=timeframe
+        )
+        
+        return JSONResponse(content=result)
+    
+    except Exception as e:
+        logger.error(f"Error getting dashboard data: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve dashboard data")
+
+
 @router.get("/dashboard", response_model=AnalyticsDashboardResponse)
 async def get_analytics_dashboard(
     timeframe: TimeframeEnum = Query(TimeframeEnum.THIRTY_DAYS, description="Time period for analysis"),
@@ -236,7 +433,7 @@ async def get_analytics_dashboard(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get comprehensive analytics dashboard data.
+    Get comprehensive analytics dashboard data (admin endpoint).
     
     Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
     """
@@ -259,6 +456,13 @@ async def get_analytics_dashboard(
     except Exception as e:
         logger.error(f"Error getting analytics dashboard: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve analytics dashboard")
+
+
+class DateRange:
+    """Simple date range class for export functionality."""
+    def __init__(self, start_date: datetime, end_date: datetime):
+        self.start_date = start_date
+        self.end_date = end_date
 
 
 @router.post("/export", response_model=AnalyticsExportResponse)

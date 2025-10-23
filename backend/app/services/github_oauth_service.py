@@ -231,7 +231,20 @@ class GitHubOAuthService:
                 )
                 .order_by(GitHubOAuthIntegration.created_at.desc())
             )
-            return result.scalar_one_or_none()
+            integrations = result.scalars().all()
+            
+            # If multiple integrations exist, clean up duplicates
+            if len(integrations) > 1:
+                logger.warning(f"Found {len(integrations)} duplicate integrations for user {user_id}, keeping most recent")
+                # Keep the first (most recent), delete others
+                for dup in integrations[1:]:
+                    await db.delete(dup)
+                await db.commit()
+                return integrations[0]
+            elif len(integrations) == 1:
+                return integrations[0]
+            else:
+                return None
             
         except Exception as e:
             logger.error(f"Failed to get user integration: {str(e)}")
@@ -264,24 +277,26 @@ class GitHubOAuthService:
                 query = query.where(GitHubOAuthIntegration.id == integration_id)
             
             result = await db.execute(query)
-            integration = result.scalar_one_or_none()
+            integrations = result.scalars().all()
             
-            if not integration:
+            if not integrations:
                 return False
             
-            # Try to revoke token with GitHub
-            try:
-                await self._revoke_github_token(integration.access_token)
-            except Exception as e:
-                logger.warning(f"Failed to revoke token with GitHub: {str(e)}")
-            
-            # Mark integration as inactive
-            integration.is_active = False
-            integration.updated_at = datetime.utcnow()
+            # Revoke all active integrations (in case of duplicates)
+            for integration in integrations:
+                # Try to revoke token with GitHub
+                try:
+                    await self._revoke_github_token(integration.access_token)
+                except Exception as e:
+                    logger.warning(f"Failed to revoke token with GitHub: {str(e)}")
+                
+                # Mark integration as inactive
+                integration.is_active = False
+                integration.updated_at = datetime.utcnow()
             
             await db.commit()
             
-            logger.info(f"Revoked GitHub integration {integration.id} for user {user_id}")
+            logger.info(f"Revoked {len(integrations)} GitHub integration(s) for user {user_id}")
             return True
             
         except Exception as e:

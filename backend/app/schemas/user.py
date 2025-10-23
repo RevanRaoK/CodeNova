@@ -38,6 +38,7 @@ class UserInDB(UserBase):
     is_active: bool
     is_verified: bool
     role: UserRole
+    team_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     last_login: Optional[datetime] = None
@@ -73,6 +74,12 @@ class PasswordReset(BaseModel):
 class UserRoleUpdate(BaseModel):
     role: UserRole
 
+class UserStatusUpdate(BaseModel):
+    is_active: bool
+
+class UserTeamAssignment(BaseModel):
+    team_id: Optional[str] = None  # None to remove from team
+
 class UserProfile(BaseModel):
     firstName: Optional[str] = None
     lastName: Optional[str] = None
@@ -88,18 +95,28 @@ class UserProfile(BaseModel):
 class UserProfileUpdate(BaseModel):
     firstName: Optional[str] = None
     lastName: Optional[str] = None
+    email: Optional[EmailStr] = None
     jobTitle: Optional[str] = None
     bio: Optional[str] = None
     programmingLanguages: Optional[List[str]] = None
     profilePictureUrl: Optional[str] = None
 
+class EmailNotificationSettings(BaseModel):
+    reviewCompleted: bool = True
+    newPattern: bool = True
+    securityAlert: bool = True
+    weeklyDigest: bool = False
+    marketingEmails: bool = False
+
+class PushNotificationSettings(BaseModel):
+    reviewCompleted: bool = True
+    newPattern: bool = False
+    securityAlert: bool = True
+
 class NotificationPreferences(BaseModel):
-    email_notifications: bool = True
-    push_notifications: bool = True
-    analysis_complete: bool = True
-    new_issues: bool = True
-    team_updates: bool = True
-    security_alerts: bool = True
+    emailNotifications: EmailNotificationSettings = EmailNotificationSettings()
+    pushNotifications: PushNotificationSettings = PushNotificationSettings()
+    frequency: str = "immediate"
 
     class Config:
         from_attributes = True

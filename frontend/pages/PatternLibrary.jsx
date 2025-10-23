@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { SearchIcon, FilterIcon, ClockIcon, CodeIcon, AlertCircleIcon, AlertTriangleIcon, InfoIcon, ChevronDownIcon, ChevronRightIcon, ThumbsUpIcon, ThumbsDownIcon, CheckCircleIcon, XCircleIcon } from 'lucide-react'
+import { SearchIcon, FilterIcon, ClockIcon, CodeIcon, AlertCircleIcon, AlertTriangleIcon, InfoIcon, ChevronDownIcon, ChevronRightIcon, ThumbsUpIcon, ThumbsDownIcon, CheckCircleIcon, XCircleIcon, LightbulbIcon } from 'lucide-react'
 import analysisService from '../services/analysisService'
 import feedbackService from '../services/feedbackService'
 import { FeedbackWidget } from '../components/FeedbackWidget'
@@ -60,29 +60,66 @@ export function PatternLibrary() {
   }
 
   const getSeverityIcon = (severity) => {
-    switch (severity) {
+    switch (severity?.toLowerCase()) {
+      case 'critical':
+        return <AlertCircleIcon className="h-4 w-4 text-red-600" />
+      case 'high':
+        return <AlertCircleIcon className="h-4 w-4 text-orange-500" />
       case 'error':
         return <AlertCircleIcon className="h-4 w-4 text-red-500" />
       case 'warning':
         return <AlertTriangleIcon className="h-4 w-4 text-yellow-500" />
-      case 'info':
+      case 'low':
         return <InfoIcon className="h-4 w-4 text-blue-500" />
+      case 'info':
+        return <InfoIcon className="h-4 w-4 text-gray-500" />
+      case 'suggestion':
+        return <LightbulbIcon className="h-4 w-4 text-green-500" />
       default:
         return <InfoIcon className="h-4 w-4 text-gray-500" />
     }
   }
 
   const getSeverityColor = (severity) => {
-    switch (severity) {
+    switch (severity?.toLowerCase()) {
+      case 'critical':
+        return 'text-red-600 bg-red-50 border-red-200'
+      case 'high':
+        return 'text-orange-600 bg-orange-50 border-orange-200'
       case 'error':
         return 'text-red-600 bg-red-50 border-red-200'
       case 'warning':
         return 'text-yellow-600 bg-yellow-50 border-yellow-200'
-      case 'info':
+      case 'low':
         return 'text-blue-600 bg-blue-50 border-blue-200'
+      case 'info':
+        return 'text-gray-600 bg-gray-50 border-gray-200'
+      case 'suggestion':
+        return 'text-green-600 bg-green-50 border-green-200'
       default:
         return 'text-gray-600 bg-gray-50 border-gray-200'
     }
+  }
+
+  // Color coding function for issue containers based on severity
+  const getSeverityColorClasses = (severity, isSuggestion = false) => {
+    // Green background for suggestion sections
+    if (isSuggestion) {
+      return 'bg-green-100 border-green-300 text-green-900'
+    }
+
+    // Color mapping for different severity levels
+    const colorMap = {
+      critical: 'bg-red-100 border-red-300 text-red-900',
+      high: 'bg-orange-100 border-orange-300 text-orange-900',
+      warning: 'bg-yellow-100 border-yellow-300 text-yellow-900',
+      low: 'bg-blue-100 border-blue-300 text-blue-900',
+      info: 'bg-gray-100 border-gray-300 text-gray-900',
+      error: 'bg-red-100 border-red-300 text-red-900', // Legacy support
+      suggestion: 'bg-green-100 border-green-300 text-green-900'
+    }
+
+    return colorMap[severity?.toLowerCase()] || colorMap.info
   }
 
   const formatDate = (dateString) => {
@@ -339,18 +376,32 @@ export function PatternLibrary() {
 // Component to display grouped issues for an analysis
 function AnalysisIssuesGroup({ analysisId }) {
   const [issues, setIssues] = useState([])
+  const [filteredIssues, setFilteredIssues] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [issueFeedback, setIssueFeedback] = useState({}) // Store feedback for each issue
+
+  // Filtering and sorting state
+  const [severityFilter, setSeverityFilter] = useState('all')
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [sortBy, setSortBy] = useState('severity') // severity, line, category
+  const [sortOrder, setSortOrder] = useState('desc') // asc, desc
+  const [searchTerm, setSearchTerm] = useState('')
 
   useEffect(() => {
     fetchAnalysisDetails()
   }, [analysisId])
 
+  useEffect(() => {
+    applyFiltersAndSorting()
+  }, [issues, severityFilter, categoryFilter, sortBy, sortOrder, searchTerm])
+
   const fetchAnalysisDetails = async () => {
     try {
       setLoading(true)
+      console.log('Fetching analysis details for ID:', analysisId)
       const analysis = await analysisService.getAnalysisById(analysisId)
+      console.log('Analysis details received:', analysis)
       const analysisIssues = analysis.issues || []
       setIssues(analysisIssues)
 
@@ -364,6 +415,88 @@ function AnalysisIssuesGroup({ analysisId }) {
     } finally {
       setLoading(false)
     }
+  }
+
+  const applyFiltersAndSorting = () => {
+    let filtered = [...issues]
+
+    // Apply search filter
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase()
+      filtered = filtered.filter(issue =>
+        issue.message?.toLowerCase().includes(searchLower) ||
+        issue.rule?.toLowerCase().includes(searchLower) ||
+        issue.category?.toLowerCase().includes(searchLower)
+      )
+    }
+
+    // Apply severity filter
+    if (severityFilter !== 'all') {
+      filtered = filtered.filter(issue => issue.severity === severityFilter)
+    }
+
+    // Apply category filter
+    if (categoryFilter !== 'all') {
+      filtered = filtered.filter(issue => issue.category === categoryFilter)
+    }
+
+    // Apply sorting
+    filtered.sort((a, b) => {
+      let aValue, bValue
+
+      switch (sortBy) {
+        case 'severity':
+          // Define severity order: error > warning > info
+          const severityOrder = { error: 3, warning: 2, info: 1 }
+          aValue = severityOrder[a.severity] || 0
+          bValue = severityOrder[b.severity] || 0
+          break
+        case 'line':
+          aValue = a.line || 0
+          bValue = b.line || 0
+          break
+        case 'category':
+          aValue = a.category || ''
+          bValue = b.category || ''
+          break
+        default:
+          aValue = a.severity || ''
+          bValue = b.severity || ''
+      }
+
+      if (sortOrder === 'asc') {
+        return aValue > bValue ? 1 : aValue < bValue ? -1 : 0
+      } else {
+        return aValue < bValue ? 1 : aValue > bValue ? -1 : 0
+      }
+    })
+
+    setFilteredIssues(filtered)
+  }
+
+  const resetFilters = () => {
+    setSeverityFilter('all')
+    setCategoryFilter('all')
+    setSortBy('severity')
+    setSortOrder('desc')
+    setSearchTerm('')
+  }
+
+  // Get unique categories from issues
+  const getUniqueCategories = () => {
+    const categories = [...new Set(issues.map(issue => issue.category).filter(Boolean))]
+    return categories.sort()
+  }
+
+  // Get issue counts by severity
+  const getIssueCounts = () => {
+    const counts = { error: 0, warning: 0, info: 0, total: issues.length }
+    issues.forEach(issue => {
+      if (counts.hasOwnProperty(issue.severity)) {
+        counts[issue.severity]++
+      }
+    })
+    return counts
   }
 
   const fetchIssueFeedback = async (analysisIssues) => {
@@ -407,29 +540,66 @@ function AnalysisIssuesGroup({ analysisId }) {
   }
 
   const getSeverityIcon = (severity) => {
-    switch (severity) {
+    switch (severity?.toLowerCase()) {
+      case 'critical':
+        return <AlertCircleIcon className="h-4 w-4 text-red-600" />
+      case 'high':
+        return <AlertCircleIcon className="h-4 w-4 text-orange-500" />
       case 'error':
         return <AlertCircleIcon className="h-4 w-4 text-red-500" />
       case 'warning':
         return <AlertTriangleIcon className="h-4 w-4 text-yellow-500" />
-      case 'info':
+      case 'low':
         return <InfoIcon className="h-4 w-4 text-blue-500" />
+      case 'info':
+        return <InfoIcon className="h-4 w-4 text-gray-500" />
+      case 'suggestion':
+        return <LightbulbIcon className="h-4 w-4 text-green-500" />
       default:
         return <InfoIcon className="h-4 w-4 text-gray-500" />
     }
   }
 
   const getSeverityColor = (severity) => {
-    switch (severity) {
+    switch (severity?.toLowerCase()) {
+      case 'critical':
+        return 'text-red-600 bg-red-50 border-red-200'
+      case 'high':
+        return 'text-orange-600 bg-orange-50 border-orange-200'
       case 'error':
         return 'text-red-600 bg-red-50 border-red-200'
       case 'warning':
         return 'text-yellow-600 bg-yellow-50 border-yellow-200'
-      case 'info':
+      case 'low':
         return 'text-blue-600 bg-blue-50 border-blue-200'
+      case 'info':
+        return 'text-gray-600 bg-gray-50 border-gray-200'
+      case 'suggestion':
+        return 'text-green-600 bg-green-50 border-green-200'
       default:
         return 'text-gray-600 bg-gray-50 border-gray-200'
     }
+  }
+
+  // Color coding function for issue containers based on severity
+  const getSeverityColorClasses = (severity, isSuggestion = false) => {
+    // Green background for suggestion sections
+    if (isSuggestion) {
+      return 'bg-green-100 border-green-300 text-green-900'
+    }
+
+    // Color mapping for different severity levels
+    const colorMap = {
+      critical: 'bg-red-100 border-red-300 text-red-900',
+      high: 'bg-orange-100 border-orange-300 text-orange-900',
+      warning: 'bg-yellow-100 border-yellow-300 text-yellow-900',
+      low: 'bg-blue-100 border-blue-300 text-blue-900',
+      info: 'bg-gray-100 border-gray-300 text-gray-900',
+      error: 'bg-red-100 border-red-300 text-red-900', // Legacy support
+      suggestion: 'bg-green-100 border-green-300 text-green-900'
+    }
+
+    return colorMap[severity?.toLowerCase()] || colorMap.info
   }
 
   // Group issues by severity
@@ -464,51 +634,311 @@ function AnalysisIssuesGroup({ analysisId }) {
     )
   }
 
+  const issueCounts = getIssueCounts()
+  const uniqueCategories = getUniqueCategories()
+
+  // Group filtered issues by severity
+  const groupedFilteredIssues = filteredIssues.reduce((groups, issue) => {
+    const severity = issue.severity || 'info'
+    if (!groups[severity]) {
+      groups[severity] = []
+    }
+    groups[severity].push(issue)
+    return groups
+  }, {})
+
   return (
     <div className="bg-gray-50 border-t border-gray-200">
-      {Object.entries(groupedIssues).map(([severity, severityIssues]) => (
-        <div key={severity} className="border-b border-gray-200 last:border-b-0">
-          <div className="px-6 py-3 bg-gray-100 border-b border-gray-200">
-            <div className="flex items-center space-x-2">
-              {getSeverityIcon(severity)}
-              <h4 className="font-medium text-gray-900 capitalize">
-                {severity} Issues ({severityIssues.length})
+      {/* Filtering and Sorting Controls */}
+      <div className="px-6 py-4 bg-white border-b border-gray-200">
+        <div className="flex flex-col space-y-4">
+          {/* Search Bar */}
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <SearchIcon className="h-4 w-4 text-gray-400" />
+            </div>
+            <input
+              type="text"
+              placeholder="Search issues by message, rule, or category..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            />
+          </div>
+
+          {/* Issue Summary */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <h4 className="font-medium text-gray-900">
+                Analysis Issues ({filteredIssues.length} of {issues.length})
               </h4>
+              <div className="flex items-center space-x-3 text-sm">
+                <span className="flex items-center space-x-1">
+                  <AlertCircleIcon className="h-4 w-4 text-red-500" />
+                  <span className="text-red-600">{issueCounts.error} errors</span>
+                </span>
+                <span className="flex items-center space-x-1">
+                  <AlertTriangleIcon className="h-4 w-4 text-yellow-500" />
+                  <span className="text-yellow-600">{issueCounts.warning} warnings</span>
+                </span>
+                <span className="flex items-center space-x-1">
+                  <InfoIcon className="h-4 w-4 text-blue-500" />
+                  <span className="text-blue-600">{issueCounts.info} info</span>
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={resetFilters}
+              className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+            >
+              Reset Filters
+            </button>
+          </div>
+
+          {/* Quick Filter Buttons */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-gray-700">Quick filters:</span>
+            <button
+              onClick={() => {
+                setSeverityFilter('error')
+                setCategoryFilter('all')
+              }}
+              className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${severityFilter === 'error'
+                ? 'bg-red-100 text-red-800 border border-red-200'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+            >
+              Errors Only
+            </button>
+            <button
+              onClick={() => {
+                setSeverityFilter('all')
+                setCategoryFilter('security')
+              }}
+              className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${categoryFilter === 'security'
+                ? 'bg-orange-100 text-orange-800 border border-orange-200'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+            >
+              Security Issues
+            </button>
+            <button
+              onClick={() => {
+                setSeverityFilter('all')
+                setCategoryFilter('performance')
+              }}
+              className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${categoryFilter === 'performance'
+                ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+            >
+              Performance
+            </button>
+            <button
+              onClick={() => {
+                setSeverityFilter('all')
+                setCategoryFilter('maintainability')
+              }}
+              className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${categoryFilter === 'maintainability'
+                ? 'bg-green-100 text-green-800 border border-green-200'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+            >
+              Maintainability
+            </button>
+          </div>
+
+          {/* Filters and Sorting */}
+          <div className="flex flex-wrap items-center gap-4">
+            {/* Severity Filter */}
+            <div className="flex items-center space-x-2">
+              <label className="text-sm font-medium text-gray-700">Severity:</label>
+              <select
+                value={severityFilter}
+                onChange={(e) => setSeverityFilter(e.target.value)}
+                className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option value="all">All Severities</option>
+                <option value="error">Errors Only</option>
+                <option value="warning">Warnings Only</option>
+                <option value="info">Info Only</option>
+              </select>
+            </div>
+
+            {/* Category Filter */}
+            {uniqueCategories.length > 0 && (
+              <div className="flex items-center space-x-2">
+                <label className="text-sm font-medium text-gray-700">Category:</label>
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="all">All Categories</option>
+                  {uniqueCategories.map(category => (
+                    <option key={category} value={category}>
+                      {category.charAt(0).toUpperCase() + category.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Sort By */}
+            <div className="flex items-center space-x-2">
+              <label className="text-sm font-medium text-gray-700">Sort by:</label>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option value="severity">Severity</option>
+                <option value="line">Line Number</option>
+                <option value="category">Category</option>
+              </select>
+            </div>
+
+            {/* Sort Order */}
+            <div className="flex items-center space-x-2">
+              <label className="text-sm font-medium text-gray-700">Order:</label>
+              <select
+                value={sortOrder}
+                onChange={(e) => setSortOrder(e.target.value)}
+                className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option value="desc">High to Low</option>
+                <option value="asc">Low to High</option>
+              </select>
             </div>
           </div>
-          <div className="divide-y divide-gray-200">
-            {severityIssues.map((issue, index) => (
-              <div key={issue.id || index} className="px-6 py-4">
-                <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0 mt-0.5">
-                    {getSeverityIcon(issue.severity)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <span className="text-sm font-medium text-gray-900">
-                        Line {issue.line}{issue.column ? `, Column ${issue.column}` : ''}
-                      </span>
-                      {issue.rule && (
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getSeverityColor(issue.severity)}`}>
-                          {issue.rule}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-700 leading-relaxed">
-                      {issue.message}
-                    </p>
-                    {issue.suggestion && (
-                      <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
-                        <strong>Suggestion:</strong> {issue.suggestion}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+
+          {/* Active Filters Display */}
+          {(severityFilter !== 'all' || categoryFilter !== 'all' || searchTerm.trim()) && (
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-600">Active filters:</span>
+              {searchTerm.trim() && (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                  Search: "{searchTerm}"
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="ml-1 text-indigo-600 hover:text-indigo-800"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+              {severityFilter !== 'all' && (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                  Severity: {severityFilter}
+                  <button
+                    onClick={() => setSeverityFilter('all')}
+                    className="ml-1 text-indigo-600 hover:text-indigo-800"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+              {categoryFilter !== 'all' && (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                  Category: {categoryFilter}
+                  <button
+                    onClick={() => setCategoryFilter('all')}
+                    className="ml-1 text-indigo-600 hover:text-indigo-800"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+            </div>
+          )}
         </div>
-      ))}
+      </div>
+
+      {/* Issues Display */}
+      {filteredIssues.length === 0 ? (
+        <div className="px-6 py-8 text-center">
+          <InfoIcon className="mx-auto h-12 w-12 text-gray-400" />
+          <h3 className="mt-2 text-sm font-medium text-gray-900">No issues match your filters</h3>
+          <p className="mt-1 text-sm text-gray-500">
+            Try adjusting your filters to see more results.
+          </p>
+        </div>
+      ) : (
+        Object.entries(groupedFilteredIssues).map(([severity, severityIssues]) => (
+          <div key={severity} className="border-b border-gray-200 last:border-b-0">
+            <div className="px-6 py-3 bg-gray-100 border-b border-gray-200">
+              <div className="flex items-center space-x-2">
+                {getSeverityIcon(severity)}
+                <h4 className="font-medium text-gray-900 capitalize">
+                  {severity} Issues ({severityIssues.length})
+                </h4>
+              </div>
+            </div>
+            <div className="divide-y divide-gray-200">
+              {severityIssues.map((issue, index) => {
+                // Determine if this is a suggestion-type issue
+                const isSuggestion = issue.category?.toLowerCase() === 'suggestion' ||
+                  issue.type?.toLowerCase() === 'suggestion' ||
+                  issue.severity?.toLowerCase() === 'suggestion'
+
+                // Get color classes for the issue container
+                const colorClasses = getSeverityColorClasses(issue.severity, isSuggestion)
+
+                return (
+                  <div key={issue.id || index} className={`px-6 py-4 border-l-4 ${colorClasses}`}>
+                    <div className="flex items-start space-x-3">
+                      <div className="flex-shrink-0 mt-0.5">
+                        {getSeverityIcon(issue.severity)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <h5 className="text-sm font-medium text-gray-900">
+                              {issue.rule || 'Code Issue'}
+                            </h5>
+                            {issue.line && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                                Line {issue.line}
+                              </span>
+                            )}
+                            {issue.category && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                {issue.category}
+                              </span>
+                            )}
+                          </div>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getSeverityColor(issue.severity)}`}>
+                            {issue.severity}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-sm text-gray-700">
+                          {issue.message}
+                        </p>
+                        {issue.suggestion && (
+                          <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-md">
+                            <p className="text-sm text-green-800">
+                              <strong>Suggestion:</strong> {issue.suggestion}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Feedback Widget */}
+                        <div className="mt-3">
+                          <FeedbackWidget
+                            suggestion={issue}
+                            onFeedbackSubmit={handleFeedbackSubmit}
+                            existingFeedback={issueFeedback[issue.id]}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))
+      )}
     </div>
   )
 }

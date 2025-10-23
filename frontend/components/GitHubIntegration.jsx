@@ -40,7 +40,6 @@ const GitHubIntegration = () => {
   const [prAnalyses, setPrAnalyses] = useState([]);
   const [prAnalysesLoading, setPrAnalysesLoading] = useState(false);
   const [prFilters, setPrFilters] = useState({
-    status: '',
     search: '',
   });
 
@@ -48,7 +47,6 @@ const GitHubIntegration = () => {
   const [repoIssues, setRepoIssues] = useState([]);
   const [issuesLoading, setIssuesLoading] = useState(false);
   const [issueFilters, setIssueFilters] = useState({
-    status: '',
     search: '',
   });
 
@@ -243,9 +241,12 @@ const GitHubIntegration = () => {
   };
 
   // Handle full repository analysis
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  
   const handleAnalyzeRepository = async () => {
-    if (!selectedRepo) return;
+    if (!selectedRepo || isAnalyzing) return;
 
+    setIsAnalyzing(true);
     try {
       const result = await githubService.analyzeRepository(selectedRepo.id, {
         branch: 'main',
@@ -256,19 +257,76 @@ const GitHubIntegration = () => {
         'success'
       );
 
-      // Refresh analyses after a short delay
-      setTimeout(() => {
-        loadPRAnalyses();
-        loadRepositoryIssues();
-      }, 2000);
+      // Start polling for updates
+      startPolling();
     } catch (err) {
       console.error('Failed to trigger repository analysis:', err);
       showToast(
         err.message || 'Failed to trigger repository analysis',
         'error'
       );
+    } finally {
+      // Re-enable button after 3 seconds to prevent accidental double-clicks
+      setTimeout(() => setIsAnalyzing(false), 3000);
     }
   };
+
+  // Polling for analysis updates
+  const [pollingInterval, setPollingInterval] = useState(null);
+
+  const startPolling = () => {
+    // Clear any existing interval
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+    }
+
+    // Poll every 5 seconds
+    const interval = setInterval(() => {
+      loadPRAnalyses();
+      loadRepositoryIssues();
+    }, 5000);
+
+    setPollingInterval(interval);
+
+    // Stop polling after 5 minutes
+    setTimeout(() => {
+      if (interval) {
+        clearInterval(interval);
+        setPollingInterval(null);
+      }
+    }, 300000);
+  };
+
+  // Stop polling when component unmounts or when all analyses are complete
+  useEffect(() => {
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [pollingInterval]);
+
+  // Check if we should stop polling (all analyses complete)
+  useEffect(() => {
+    if (prAnalyses.length > 0) {
+      const hasPending = prAnalyses.some(
+        (analysis) => analysis.status === 'pending' || analysis.status === 'in_progress'
+      );
+
+      console.log('Polling check:', {
+        totalAnalyses: prAnalyses.length,
+        hasPending,
+        statuses: prAnalyses.map(a => a.status),
+        pollingActive: !!pollingInterval
+      });
+
+      if (!hasPending && pollingInterval) {
+        console.log('Stopping polling - all analyses complete');
+        clearInterval(pollingInterval);
+        setPollingInterval(null);
+      }
+    }
+  }, [prAnalyses, pollingInterval]);
 
   // Handle manual PR analysis trigger
   const handleTriggerAnalysis = async (prNumber) => {
@@ -324,14 +382,18 @@ const GitHubIntegration = () => {
     );
   };
 
-  // Format date
+  // Format date with time in user's local timezone
   const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    if (!dateString) return 'N/A';
+
+    const date = new Date(dateString);
+    return date.toLocaleString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
+      hour12: true,
     });
   };
 
@@ -443,11 +505,10 @@ const GitHubIntegration = () => {
                   repositories.map((repo) => (
                     <div
                       key={repo.id}
-                      className={`p-4 cursor-pointer hover:bg-gray-50 ${
-                        selectedRepo?.id === repo.id
-                          ? 'bg-indigo-50 border-r-2 border-indigo-500'
-                          : ''
-                      }`}
+                      className={`p-4 cursor-pointer hover:bg-gray-50 ${selectedRepo?.id === repo.id
+                        ? 'bg-indigo-50 border-r-2 border-indigo-500'
+                        : ''
+                        }`}
                       onClick={() => setSelectedRepo(repo)}
                     >
                       <div className="flex items-center justify-between">
@@ -517,8 +578,13 @@ const GitHubIntegration = () => {
                       )}
                       <button
                         onClick={handleAnalyzeRepository}
-                        className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 transition-colors flex items-center space-x-1"
-                        title="Analyze entire repository for code quality issues"
+                        disabled={isAnalyzing}
+                        className={`px-3 py-1 rounded text-sm transition-colors flex items-center space-x-1 ${
+                          isAnalyzing 
+                            ? 'bg-gray-400 text-white cursor-not-allowed' 
+                            : 'bg-green-600 text-white hover:bg-green-700'
+                        }`}
+                        title={isAnalyzing ? 'Analysis in progress...' : 'Analyze entire repository for code quality issues'}
                       >
                         <svg
                           className="h-4 w-4"
@@ -539,7 +605,7 @@ const GitHubIntegration = () => {
                             d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                           />
                         </svg>
-                        <span>Analyze Repository</span>
+                        <span>{isAnalyzing ? 'Starting...' : 'Analyze Repository'}</span>
                       </button>
                       <button
                         onClick={loadPRAnalyses}
@@ -589,24 +655,19 @@ const GitHubIntegration = () => {
                           }
                           className="px-3 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         />
-                        <select
-                          value={prFilters.status}
-                          onChange={(e) =>
-                            setPrFilters((prev) => ({
-                              ...prev,
-                              status: e.target.value,
-                            }))
-                          }
-                          className="px-3 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        >
-                          <option value="">All Status</option>
-                          <option value="pending">Pending</option>
-                          <option value="completed">Completed</option>
-                          <option value="failed">Failed</option>
-                        </select>
                       </div>
                     </div>
                   </div>
+
+                  {/* Polling indicator */}
+                  {pollingInterval && (
+                    <div className="px-4 py-2 bg-blue-50 border-t border-b border-blue-200">
+                      <div className="flex items-center justify-center space-x-2 text-sm text-blue-700">
+                        <RefreshCwIcon className="h-4 w-4 animate-spin" />
+                        <span>Auto-refreshing analysis status...</span>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="divide-y divide-gray-200 max-h-64 overflow-y-auto">
                     {prAnalysesLoading ? (
@@ -654,21 +715,18 @@ const GitHubIntegration = () => {
                                     </span>
                                   </>
                                 )}
-                                {getStatusBadge(analysis.status)}
                               </div>
                               {analysis.pr_title && (
                                 <p className="text-sm text-gray-700 mt-1 truncate">
-                                  {analysis.pr_title}
+                                  {analysis.pr_title} - {analysis.pr_title.split(' - ')[1] || ''}
                                 </p>
                               )}
                               <p className="text-xs text-gray-500 mt-1">
                                 {formatDate(analysis.created_at)}
                               </p>
-                              {analysis.issues_found > 0 && (
-                                <p className="text-xs text-red-600 mt-1">
-                                  {analysis.issues_found} issues found
-                                </p>
-                              )}
+                              <p className="text-sm font-medium text-gray-900 mt-1">
+                                {analysis.issues_found || 0} {analysis.issues_found === 1 ? 'issue' : 'issues'} found
+                              </p>
                             </div>
                             <div className="flex items-center space-x-2">
                               {analysis.pr_url && analysis.pr_number > 0 && (
@@ -688,8 +746,8 @@ const GitHubIntegration = () => {
                                     analysis.pr_number === 0
                                       ? handleAnalyzeRepository()
                                       : handleTriggerAnalysis(
-                                          analysis.pr_number
-                                        )
+                                        analysis.pr_number
+                                      )
                                   }
                                   className="text-gray-400 hover:text-green-600 transition-colors"
                                   title="Retry analysis"
@@ -725,79 +783,58 @@ const GitHubIntegration = () => {
                           }
                           className="px-3 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         />
-                        <select
-                          value={issueFilters.status}
-                          onChange={(e) =>
-                            setIssueFilters((prev) => ({
-                              ...prev,
-                              status: e.target.value,
-                            }))
-                          }
-                          className="px-3 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        >
-                          <option value="">All Status</option>
-                          <option value="open">Open</option>
-                          <option value="closed">Closed</option>
-                        </select>
                       </div>
                     </div>
                   </div>
 
                   <div className="divide-y divide-gray-200 max-h-64 overflow-y-auto">
-                    {issuesLoading ? (
+                    {prAnalysesLoading ? (
                       <div className="p-6 text-center">
                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600 mx-auto"></div>
                         <p className="text-gray-600 mt-2 text-sm">
                           Loading issues...
                         </p>
                       </div>
-                    ) : repoIssues.length === 0 ? (
+                    ) : prAnalyses.length === 0 ? (
                       <div className="p-6 text-center">
                         <BugIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                         <p className="text-gray-600">No issues found</p>
                       </div>
                     ) : (
-                      repoIssues.map((issue) => (
-                        <div key={issue.id} className="p-4">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center space-x-2">
-                                <BugIcon className="h-4 w-4 text-red-500" />
-                                <span className="text-sm font-medium text-gray-900">
-                                  {issue.title}
-                                </span>
-                                {getStatusBadge(issue.state)}
-                              </div>
-                              <p className="text-xs text-gray-500 mt-1">
-                                #{issue.number} • {formatDate(issue.created_at)}
-                              </p>
-                              {issue.labels && issue.labels.length > 0 && (
-                                <div className="flex items-center space-x-1 mt-2">
-                                  {issue.labels.map((label) => (
-                                    <span
-                                      key={label.name}
-                                      className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800"
-                                    >
-                                      {label.name}
-                                    </span>
-                                  ))}
+                      prAnalyses
+                        .filter((analysis) => {
+                          const searchTerm = issueFilters.search.toLowerCase();
+                          if (!searchTerm) return true;
+                          const dateStr = formatDate(analysis.created_at).toLowerCase();
+                          const titleStr = (analysis.pr_title || '').toLowerCase();
+                          const branchStr = (analysis.pr_title?.split(' - ')[1] || '').toLowerCase();
+                          return dateStr.includes(searchTerm) || titleStr.includes(searchTerm) || branchStr.includes(searchTerm);
+                        })
+                        .map((analysis) => (
+                          <div key={analysis.id} className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center space-x-2">
+                                  <BugIcon className="h-4 w-4 text-red-500" />
+                                  <span className="text-sm font-medium text-gray-900">
+                                    {analysis.pr_number === 0 ? 'Full Repository Analysis' : `PR #${analysis.pr_number}`}
+                                  </span>
                                 </div>
-                              )}
+                                {analysis.pr_title && (
+                                  <p className="text-sm text-gray-700 mt-1 truncate">
+                                    {analysis.pr_title.split(' - ')[1] || analysis.pr_title}
+                                  </p>
+                                )}
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {formatDate(analysis.created_at)}
+                                </p>
+                                <p className="text-sm font-medium text-red-600 mt-1">
+                                  {analysis.issues_found || 0} {analysis.issues_found === 1 ? 'issue' : 'issues'} found
+                                </p>
+                              </div>
                             </div>
-                            {issue.html_url && (
-                              <a
-                                href={issue.html_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-gray-400 hover:text-indigo-600 transition-colors"
-                                title="View issue"
-                              >
-                                <ExternalLinkIcon className="h-4 w-4" />
-                              </a>
-                            )}
                           </div>
-                        </div>
-                      ))
+                        ))
                     )}
                   </div>
                 </div>
@@ -830,9 +867,8 @@ const GitHubIntegration = () => {
       {showDisconnectConfirm && repoToDisconnect && (
         <ConfirmationDialog
           title="Disconnect Repository"
-          message={`Are you sure you want to disconnect "${
-            repoToDisconnect.name || repoToDisconnect.repo_url
-          }"? This will remove webhook integration and stop automatic analysis.`}
+          message={`Are you sure you want to disconnect "${repoToDisconnect.name || repoToDisconnect.repo_url
+            }"? This will remove webhook integration and stop automatic analysis.`}
           confirmText="Disconnect"
           confirmButtonClass="bg-red-600 hover:bg-red-700"
           onConfirm={handleDisconnectRepository}

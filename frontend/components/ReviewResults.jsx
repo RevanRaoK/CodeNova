@@ -16,6 +16,14 @@ import {
 } from 'lucide-react'
 import { FeedbackWidget } from './FeedbackWidget'
 import feedbackService from '../services/feedbackService'
+import {
+  getSeverityColorClasses,
+  getSeverityIconColor,
+  getSeverityBadgeClasses,
+  getSeverityAccessibilityLabel,
+  getSeverityTooltip,
+  compareSeverityPriority
+} from '../utils/colorCoding'
 
 export function ReviewResults({
   issues,
@@ -47,31 +55,30 @@ export function ReviewResults({
 
     // Sort issues
     filtered.sort((a, b) => {
-      let aVal, bVal
+      let result = 0
 
       switch (sortBy) {
         case 'line':
-          aVal = a.line || 0
-          bVal = b.line || 0
+          const aLine = a.line || 0
+          const bLine = b.line || 0
+          result = aLine - bLine
           break
         case 'severity':
-          const severityOrder = { error: 3, warning: 2, info: 1 }
-          aVal = severityOrder[a.severity] || 0
-          bVal = severityOrder[b.severity] || 0
+          // Use the priority comparison function from utilities
+          result = compareSeverityPriority(a.severity, b.severity)
           break
         case 'category':
-          aVal = a.category || 'general'
-          bVal = b.category || 'general'
+          const aCategory = a.category || 'general'
+          const bCategory = b.category || 'general'
+          result = aCategory.localeCompare(bCategory)
           break
         default:
-          aVal = a.line || 0
-          bVal = b.line || 0
+          const aLineDefault = a.line || 0
+          const bLineDefault = b.line || 0
+          result = aLineDefault - bLineDefault
       }
 
-      if (sortOrder === 'desc') {
-        return bVal > aVal ? 1 : bVal < aVal ? -1 : 0
-      }
-      return aVal > bVal ? 1 : aVal < bVal ? -1 : 0
+      return sortOrder === 'desc' ? -result : result
     })
 
     // Group issues if needed
@@ -337,30 +344,33 @@ export function ReviewResults({
   }
 
   const getSeverityIcon = (severity) => {
-    switch (severity) {
+    const iconColorClass = getSeverityIconColor(severity)
+    
+    switch (severity?.toLowerCase()) {
+      case 'critical':
+        return <AlertCircleIcon className={`h-5 w-5 ${iconColorClass}`} />
+      case 'high':
+        return <AlertCircleIcon className={`h-5 w-5 ${iconColorClass}`} />
       case 'error':
-        return <AlertCircleIcon className="h-5 w-5 text-red-500" />
+        return <AlertCircleIcon className={`h-5 w-5 ${iconColorClass}`} />
       case 'warning':
-        return <AlertTriangleIcon className="h-5 w-5 text-yellow-500" />
+        return <AlertTriangleIcon className={`h-5 w-5 ${iconColorClass}`} />
+      case 'low':
+        return <InfoIcon className={`h-5 w-5 ${iconColorClass}`} />
       case 'info':
-        return <InfoIcon className="h-5 w-5 text-blue-500" />
+        return <InfoIcon className={`h-5 w-5 ${iconColorClass}`} />
+      case 'suggestion':
+        return <LightbulbIcon className={`h-5 w-5 ${iconColorClass}`} />
       default:
-        return <InfoIcon className="h-5 w-5 text-gray-500" />
+        return <InfoIcon className={`h-5 w-5 ${iconColorClass}`} />
     }
   }
 
   const getSeverityColor = (severity) => {
-    switch (severity) {
-      case 'error':
-        return 'text-red-600 bg-red-50 border-red-200'
-      case 'warning':
-        return 'text-yellow-600 bg-yellow-50 border-yellow-200'
-      case 'info':
-        return 'text-blue-600 bg-blue-50 border-blue-200'
-      default:
-        return 'text-gray-600 bg-gray-50 border-gray-200'
-    }
+    return getSeverityBadgeClasses(severity)
   }
+
+
 
   const renderIssueItem = (issue, index, globalIndex = null) => {
     const issueId = issue.id || `issue-${index}`
@@ -370,6 +380,14 @@ export function ReviewResults({
     )
     const isSelected = selectedIssueIndex === actualIndex
 
+    // Determine if this is a suggestion-type issue
+    const isSuggestion = issue.category?.toLowerCase() === 'suggestion' || 
+                         issue.type?.toLowerCase() === 'suggestion' ||
+                         issue.severity?.toLowerCase() === 'suggestion'
+    
+    // Get color classes for the issue container
+    const colorClasses = getSeverityColorClasses(issue.severity, isSuggestion)
+
     return (
       <div
         key={issueId}
@@ -377,12 +395,25 @@ export function ReviewResults({
           }`}
       >
         <div
-          className={`p-4 transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'
-            } ${onIssueClick ? 'cursor-pointer' : ''}`}
+          className={`p-4 severity-container border-l-4 ${colorClasses} ${isSelected ? 'ring-2 ring-blue-500 ring-inset' : ''
+            } ${onIssueClick ? 'cursor-pointer' : ''} hover:opacity-90`}
           onClick={() => {
             setSelectedIssueIndex(actualIndex)
             if (onIssueClick) {
               handleIssueClick(issue)
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label={`${getSeverityAccessibilityLabel(issue.severity)} at line ${issue.line}: ${issue.message}`}
+          title={getSeverityTooltip(issue.severity)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              setSelectedIssueIndex(actualIndex)
+              if (onIssueClick) {
+                handleIssueClick(issue)
+              }
             }
           }}
         >
@@ -398,7 +429,11 @@ export function ReviewResults({
                     Line {issue.line}{issue.column ? `, Column ${issue.column}` : ''}
                   </span>
                   {issue.rule && (
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getSeverityColor(issue.severity)}`}>
+                    <span 
+                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getSeverityColor(issue.severity)}`}
+                      aria-label={`Rule: ${issue.rule}, ${getSeverityAccessibilityLabel(issue.severity)}`}
+                      title={`Rule: ${issue.rule} - ${getSeverityTooltip(issue.severity)}`}
+                    >
                       {issue.rule}
                     </span>
                   )}
@@ -456,7 +491,7 @@ export function ReviewResults({
 
               {/* Feedback status and widget section */}
               {enableFeedback && issue.id && (
-                <div className="mt-3 pt-3 border-t border-gray-200">
+                <div className="mt-3 pt-3 border-t border-gray-200" onClick={(e) => e.stopPropagation()}>
                   {/* Show existing feedback status */}
                   {issueFeedback.has(issue.id) ? (
                     <div className="space-y-2">
@@ -548,14 +583,18 @@ export function ReviewResults({
           <div className="px-4 pb-4 bg-gray-50 border-t border-gray-200">
             <div className="space-y-3">
               {issue.suggestion && (
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <div 
+                  className={`p-3 rounded-md ${getSeverityColorClasses('suggestion')}`}
+                  role="region"
+                  aria-label="AI Suggestion"
+                >
                   <div className="flex items-start">
-                    <LightbulbIcon className="h-4 w-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" />
+                    <LightbulbIcon className={`h-4 w-4 mr-2 mt-0.5 flex-shrink-0 ${getSeverityIconColor('suggestion')}`} />
                     <div>
-                      <div className="font-medium text-blue-800 text-sm mb-1">
+                      <div className="font-medium text-sm mb-1">
                         Suggestion:
                       </div>
-                      <p className="text-blue-700 text-sm leading-relaxed">
+                      <p className="text-sm leading-relaxed">
                         {issue.suggestion}
                       </p>
                     </div>
@@ -564,14 +603,18 @@ export function ReviewResults({
               )}
 
               {issue.codeExample && (
-                <div className="p-3 bg-green-50 border border-green-200 rounded-md">
+                <div 
+                  className={`p-3 rounded-md ${getSeverityColorClasses('suggestion')}`}
+                  role="region"
+                  aria-label="Code Example"
+                >
                   <div className="flex items-start">
-                    <CodeIcon className="h-4 w-4 text-green-500 mr-2 mt-0.5 flex-shrink-0" />
+                    <CodeIcon className={`h-4 w-4 mr-2 mt-0.5 flex-shrink-0 ${getSeverityIconColor('suggestion')}`} />
                     <div className="flex-1">
-                      <div className="font-medium text-green-800 text-sm mb-2">
+                      <div className="font-medium text-sm mb-2">
                         Example Fix:
                       </div>
-                      <pre className="text-green-700 text-sm bg-green-100 p-2 rounded border overflow-x-auto">
+                      <pre className="text-sm p-2 rounded border overflow-x-auto bg-opacity-50 bg-white">
                         <code>{issue.codeExample}</code>
                       </pre>
                     </div>
@@ -580,14 +623,18 @@ export function ReviewResults({
               )}
 
               {issue.documentation && (
-                <div className="p-3 bg-purple-50 border border-purple-200 rounded-md">
+                <div 
+                  className={`p-3 rounded-md ${getSeverityColorClasses('info')}`}
+                  role="region"
+                  aria-label="Documentation"
+                >
                   <div className="flex items-start">
-                    <InfoIcon className="h-4 w-4 text-purple-500 mr-2 mt-0.5 flex-shrink-0" />
+                    <InfoIcon className={`h-4 w-4 mr-2 mt-0.5 flex-shrink-0 ${getSeverityIconColor('info')}`} />
                     <div>
-                      <div className="font-medium text-purple-800 text-sm mb-1">
+                      <div className="font-medium text-sm mb-1">
                         Learn More:
                       </div>
-                      <p className="text-purple-700 text-sm leading-relaxed">
+                      <p className="text-sm leading-relaxed">
                         {issue.documentation}
                       </p>
                     </div>
@@ -679,6 +726,35 @@ export function ReviewResults({
                 </span>
               </div>
             )}
+
+            {/* Color coding legend */}
+            <div className="mt-2 text-xs text-gray-500" role="note" aria-label="Color coding legend">
+              <span className="mr-4">Color coding:</span>
+              <span className="inline-flex items-center mr-2">
+                <span className="w-3 h-3 bg-red-100 border border-red-300 rounded mr-1" aria-hidden="true"></span>
+                Critical/Error
+              </span>
+              <span className="inline-flex items-center mr-2">
+                <span className="w-3 h-3 bg-orange-100 border border-orange-300 rounded mr-1" aria-hidden="true"></span>
+                High
+              </span>
+              <span className="inline-flex items-center mr-2">
+                <span className="w-3 h-3 bg-yellow-100 border border-yellow-300 rounded mr-1" aria-hidden="true"></span>
+                Warning
+              </span>
+              <span className="inline-flex items-center mr-2">
+                <span className="w-3 h-3 bg-blue-100 border border-blue-300 rounded mr-1" aria-hidden="true"></span>
+                Low
+              </span>
+              <span className="inline-flex items-center mr-2">
+                <span className="w-3 h-3 bg-gray-100 border border-gray-300 rounded mr-1" aria-hidden="true"></span>
+                Info
+              </span>
+              <span className="inline-flex items-center">
+                <span className="w-3 h-3 bg-green-100 border border-green-300 rounded mr-1" aria-hidden="true"></span>
+                Suggestions
+              </span>
+            </div>
           </div>
 
           {/* Filter, group and sort controls */}

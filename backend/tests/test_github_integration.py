@@ -34,15 +34,14 @@ from app.schemas.github_schemas import (
     WebhookEventResponse
 )
 
-# T
-est fixtures and mock data
+# Test fixtures and mock data
 @pytest.fixture
 def mock_user():
     """Create a mock user for testing."""
     user = Mock(spec=User)
     user.id = 1
     user.email = "test@example.com"
-    user.username = "testuser"
+    user.full_name = "Test User"
     return user
 
 
@@ -644,7 +643,7 @@ def mock_current_user():
     user = Mock(spec=User)
     user.id = 1
     user.email = "test@example.com"
-    user.username = "testuser"
+    user.full_name = "Test User"
     return user
 
 

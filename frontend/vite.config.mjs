@@ -158,6 +158,14 @@ export default async () => {
     server: {
       // Enable HTTP/2 for better performance
       https: false,
+      // Proxy API requests to backend
+      proxy: {
+        '/api': {
+          target: 'http://localhost:8000',
+          changeOrigin: true,
+          secure: false,
+        },
+      },
       // Optimize HMR
       hmr: {
         overlay: true,

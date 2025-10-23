@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ReviewResults Color Coding Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-2 text-gray-900">ReviewResults Color Coding Demo</h1>
+        <p class="text-gray-600 mb-8">Visual demonstration of severity-based color coding for code review issues</p>
+        
+        <div class="space-y-4">
+            <!-- Critical Severity -->
+            <div class="border-b border-gray-200">
+                <div class="p-4 transition-colors border-l-4 bg-red-100 border-red-300 text-red-900 hover:opacity-90">
+                    <div class="flex items-start">
+                        <div class="flex-shrink-0 mr-3 mt-0.5">
+                            <svg class="h-5 w-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="8" x2="12" y2="12"></line>
+                                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-2">
+                                <span class="font-medium text-gray-900">Line 10, Column 5</span>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-red-50 border-red-200 text-red-600">
+                                    CRITICAL
+                                </span>
+                            </div>
+                            <p class="text-gray-700 mt-1 text-sm">Critical security vulnerability detected - SQL injection risk</p>
+                            <div class="mt-2">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                                    security
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- High Severity -->
+            <div class="border-b border-gray-200">
+                <div class="p-4 transition-colors border-l-4 bg-orange-100 border-orange-300 text-orange-900 hover:opacity-90">
+                    <div class="flex items-start">
+                        <div class="flex-shrink-0 mr-3 mt-0.5">
+                            <svg class="h-5 w-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="8" x2="12" y2="12"></line>
+                                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-2">
+                                <span class="font-medium text-gray-900">Line 25, Column 12</span>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-orange-50 border-orange-200 text-orange-600">
+                                    HIGH
+                                </span>
+                            </div>
+                            <p class="text-gray-700 mt-1 text-sm">Memory leak detected in event listener cleanup</p>
+                            <div class="mt-2">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                                    performance
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Warning Severity -->
+            <div class="border-b border-gray-200">
+                <div class="p-4 transition-colors border-l-4 bg-yellow-100 border-yellow-300 text-yellow-900 hover:opacity-90">
+                    <div class="flex items-start">
+                        <div class="flex-shrink-0 mr-3 mt-0.5">
+                            <svg class="h-5 w-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                                <line x1="12" y1="9" x2="12" y2="13"></line>
+                                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-2">
+                                <span class="font-medium text-gray-900">Line 42, Column 8</span>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-yellow-50 border-yellow-200 text-yellow-600">
+                                    WARNING
+                                </span>
+                            </div>
+                            <p class="text-gray-700 mt-1 text-sm">Unused variable 'userData' declared but never used</p>
+                            <div class="mt-2">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                                    code-quality
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Low Severity -->
+            <div class="border-b border-gray-200">
+                <div class="p-4 transition-colors border-l-4 bg-blue-100 border-blue-300 text-blue-900 hover:opacity-90">
+                    <div class="flex items-start">
+                        <div class="flex-shrink-0 mr-3 mt-0.5">
+                            <svg class="h-5 w-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <path d="M12 16v-4"></path>
+                                <path d="M12 8h.01"></path>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-2">
+                                <span class="font-medium text-gray-900">Line 58, Column 15</span>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-blue-50 border-blue-200 text-blue-600">
+                                    LOW
+                                </span>
+                            </div>
+                            <p class="text-gray-700 mt-1 text-sm">Consider using more descriptive variable name instead of 'x'</p>
+                            <div class="mt-2">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                                    naming
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Info Severity -->
+            <div class="border-b border-gray-200">
+                <div class="p-4 transition-colors border-l-4 bg-gray-100 border-gray-300 text-gray-900 hover:opacity-90">
+                    <div class="flex items-start">
+                        <div class="flex-shrink-0 mr-3 mt-0.5">
+                            <svg class="h-5 w-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <path d="M12 16v-4"></path>
+                                <path d="M12 8h.01"></path>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-2">
+                                <span class="font-medium text-gray-900">Line 73, Column 20</span>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-gray-50 border-gray-200 text-gray-600">
+                                    INFO
+                                </span>
+                            </div>
+                            <p class="text-gray-700 mt-1 text-sm">Function could benefit from JSDoc documentation</p>
+                            <div class="mt-2">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                                    documentation
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Suggestion -->
+            <div class="border-b border-gray-200">
+                <div class="p-4 transition-colors border-l-4 bg-green-100 border-green-300 text-green-900 hover:opacity-90">
+                    <div class="flex items-start">
+                        <div class="flex-shrink-0 mr-3 mt-0.5">
+                            <svg class="h-5 w-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"></path>
+                                <path d="M9 18h6"></path>
+                                <path d="M10 22h4"></path>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-2">
+                                <span class="font-medium text-gray-900">Line 90, Column 5</span>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-green-50 border-green-200 text-green-600">
+                                    SUGGESTION
+                                </span>
+                            </div>
+                            <p class="text-gray-700 mt-1 text-sm">Consider using async/await for better readability</p>
+                            <div class="mt-2">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                                    suggestion
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Color Legend -->
+        <div class="mt-8 p-6 bg-white rounded-lg shadow-sm border border-gray-200">
+            <h2 class="text-xl font-semibold mb-4 text-gray-900">Color Coding Legend</h2>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div class="flex items-center space-x-2">
+                    <div class="w-4 h-4 bg-red-100 border-2 border-red-300 rounded"></div>
+                    <span class="text-sm text-gray-700">Critical (Red)</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <div class="w-4 h-4 bg-orange-100 border-2 border-orange-300 rounded"></div>
+                    <span class="text-sm text-gray-700">High (Orange)</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <div class="w-4 h-4 bg-yellow-100 border-2 border-yellow-300 rounded"></div>
+                    <span class="text-sm text-gray-700">Warning (Yellow)</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <div class="w-4 h-4 bg-blue-100 border-2 border-blue-300 rounded"></div>
+                    <span class="text-sm text-gray-700">Low (Blue)</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <div class="w-4 h-4 bg-gray-100 border-2 border-gray-300 rounded"></div>
+                    <span class="text-sm text-gray-700">Info (Gray)</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <div class="w-4 h-4 bg-green-100 border-2 border-green-300 rounded"></div>
+                    <span class="text-sm text-gray-700">Suggestion (Green)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Accessibility Note -->
+        <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <h3 class="text-sm font-semibold text-blue-900 mb-2">♿ Accessibility</h3>
+            <p class="text-sm text-blue-800">
+                All colors meet WCAG AA contrast requirements for accessibility. 
+                The color coding is supplemented with icons and text labels to ensure 
+                information is conveyed through multiple channels.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

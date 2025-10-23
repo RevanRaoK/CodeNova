@@ -29,8 +29,12 @@ const TeamManagementPanel = ({ onError, onSuccess, currentUser }) => {
           try {
                setLoading(true);
                const response = await adminService.getAllTeams();
-               setTeams(response.teams || []);
+               console.log('Teams response:', response);
+               // Backend returns array directly, not wrapped in {teams: []}
+               const teamsArray = Array.isArray(response) ? response : (response.teams || []);
+               setTeams(teamsArray);
           } catch (error) {
+               console.error('Error loading teams:', error);
                onError(error);
           } finally {
                setLoading(false);
@@ -40,7 +44,13 @@ const TeamManagementPanel = ({ onError, onSuccess, currentUser }) => {
      const handleCreateTeam = async (e) => {
           e.preventDefault();
           try {
-               await adminService.createTeam(formData);
+               // Convert camelCase to snake_case for backend
+               const teamData = {
+                    name: formData.name,
+                    admin_id: formData.adminId || null,
+                    settings: formData.settings || {}
+               };
+               await adminService.createTeam(teamData);
                onSuccess('Team created successfully');
                setShowCreateForm(false);
                setFormData({ name: '', adminId: '', settings: {} });
@@ -53,7 +63,13 @@ const TeamManagementPanel = ({ onError, onSuccess, currentUser }) => {
      const handleUpdateTeam = async (e) => {
           e.preventDefault();
           try {
-               await adminService.updateTeam(editingTeam.id, formData);
+               // Convert camelCase to snake_case for backend
+               const teamData = {
+                    name: formData.name,
+                    admin_id: formData.adminId || null,
+                    settings: formData.settings || {}
+               };
+               await adminService.updateTeam(editingTeam.id, teamData);
                onSuccess('Team updated successfully');
                setEditingTeam(null);
                setFormData({ name: '', adminId: '', settings: {} });

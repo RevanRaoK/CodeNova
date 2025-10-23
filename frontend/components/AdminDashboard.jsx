@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Shield, BarChart3, Settings, Search, Filter, Plus, Edit, Trash2, Eye } from 'lucide-react';
-import adminService from '../services/adminService.js';
+import { Users, Shield, BarChart3, Eye } from 'lucide-react';
 import authService from '../services/authService.js';
 import UserManagementPanel from './admin/UserManagementPanel.jsx';
 import TeamManagementPanel from './admin/TeamManagementPanel.jsx';
 import TeamAnalyticsPanel from './admin/TeamAnalyticsPanel.jsx';
 import AuditLogPanel from './admin/AuditLogPanel.jsx';
-import PlatformStatsPanel from './admin/PlatformStatsPanel.jsx';
-import ConfirmationDialog from './ConfirmationDialog.jsx';
+import AdminAnalyticsDashboard from './admin/AdminAnalyticsDashboard.jsx';
 import Toast from './Toast.jsx';
 
 /**
@@ -15,7 +13,6 @@ import Toast from './Toast.jsx';
  */
 const AdminDashboard = ({ activeSection = 'users' }) => {
      const [activeTab, setActiveTab] = useState(activeSection);
-     const [loading, setLoading] = useState(false);
      const [error, setError] = useState(null);
      const [toast, setToast] = useState(null);
      const [currentUser, setCurrentUser] = useState(null);
@@ -34,48 +31,9 @@ const AdminDashboard = ({ activeSection = 'users' }) => {
      const tabs = [
           {
                id: 'dashboard',
-               label: 'Overview',
+               label: 'Global Analytics',
                icon: BarChart3,
-               component: () => (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                         <div className="bg-white p-6 rounded-lg shadow-sm border">
-                              <div className="flex items-center">
-                                   <Users className="h-8 w-8 text-blue-600" />
-                                   <div className="ml-4">
-                                        <p className="text-sm font-medium text-gray-600">Total Users</p>
-                                        <p className="text-2xl font-bold text-gray-900">1,234</p>
-                                   </div>
-                              </div>
-                         </div>
-                         <div className="bg-white p-6 rounded-lg shadow-sm border">
-                              <div className="flex items-center">
-                                   <Shield className="h-8 w-8 text-green-600" />
-                                   <div className="ml-4">
-                                        <p className="text-sm font-medium text-gray-600">Active Teams</p>
-                                        <p className="text-2xl font-bold text-gray-900">56</p>
-                                   </div>
-                              </div>
-                         </div>
-                         <div className="bg-white p-6 rounded-lg shadow-sm border">
-                              <div className="flex items-center">
-                                   <BarChart3 className="h-8 w-8 text-purple-600" />
-                                   <div className="ml-4">
-                                        <p className="text-sm font-medium text-gray-600">Reviews Today</p>
-                                        <p className="text-2xl font-bold text-gray-900">89</p>
-                                   </div>
-                              </div>
-                         </div>
-                         <div className="bg-white p-6 rounded-lg shadow-sm border">
-                              <div className="flex items-center">
-                                   <Eye className="h-8 w-8 text-orange-600" />
-                                   <div className="ml-4">
-                                        <p className="text-sm font-medium text-gray-600">System Health</p>
-                                        <p className="text-2xl font-bold text-green-600">Good</p>
-                                   </div>
-                              </div>
-                         </div>
-                    </div>
-               )
+               component: AdminAnalyticsDashboard
           },
           {
                id: 'users',
@@ -90,22 +48,10 @@ const AdminDashboard = ({ activeSection = 'users' }) => {
                component: TeamManagementPanel
           },
           {
-               id: 'analytics',
-               label: 'Team Analytics',
-               icon: BarChart3,
-               component: TeamAnalyticsPanel
-          },
-          {
                id: 'audit',
                label: 'Audit Logs',
                icon: Eye,
                component: AuditLogPanel
-          },
-          {
-               id: 'stats',
-               label: 'Platform Stats',
-               icon: Settings,
-               component: PlatformStatsPanel
           }
      ];
 
@@ -155,12 +101,10 @@ const AdminDashboard = ({ activeSection = 'users' }) => {
                                                        {activeTabConfig?.label || 'Dashboard'}
                                                   </h1>
                                                   <p className="text-gray-600 mt-1">
-                                                       {activeTab === 'dashboard' && 'Overview and key metrics'}
+                                                       {activeTab === 'dashboard' && 'Platform-wide analytics and insights'}
                                                        {activeTab === 'users' && 'Manage users and roles'}
                                                        {activeTab === 'teams' && 'Create and manage teams'}
-                                                       {activeTab === 'analytics' && 'Team performance analytics'}
                                                        {activeTab === 'audit' && 'System activity logs'}
-                                                       {activeTab === 'stats' && 'Platform statistics and health'}
                                                   </p>
                                              </>
                                         );
@@ -174,12 +118,6 @@ const AdminDashboard = ({ activeSection = 'users' }) => {
 
                {/* Main Content */}
                <div className="px-4 sm:px-6 lg:px-8 py-8">
-                    {loading && (
-                         <div className="flex justify-center items-center py-12">
-                              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                         </div>
-                    )}
-
                     {error && !error.includes('Access denied') && (
                          <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-6">
                               <div className="flex">
@@ -202,7 +140,7 @@ const AdminDashboard = ({ activeSection = 'users' }) => {
                     )}
 
                     {/* Render Active Tab Component */}
-                    {!loading && !error && (() => {
+                    {!error && (() => {
                          const activeTabConfig = tabs.find(tab => tab.id === activeTab);
                          if (!activeTabConfig) return null;
 

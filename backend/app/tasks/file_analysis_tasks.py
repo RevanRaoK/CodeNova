@@ -27,6 +27,7 @@ from app.services.background_code_analysis_service import (
     AnalysisStatus as BgAnalysisStatus
 )
 from app.services.ai_service import AIService
+from app.core.json_encoder import sanitize_for_json
 
 logger = logging.getLogger(__name__)
 
@@ -383,6 +384,10 @@ async def analyze_repository_files(
     """
     logger.info(f"Starting repository analysis for {repository_id}")
     
+    # CRITICAL: Convert any Pattern objects to strings immediately
+    if file_patterns:
+        file_patterns = [str(p) for p in file_patterns]
+    
     async with AsyncSessionLocal() as db:
         try:
             # Get repository details from database
@@ -464,13 +469,14 @@ async def analyze_repository_files(
             if not discovered_files:
                 analysis.status = AnalysisStatus.COMPLETED
                 analysis.completed_at = datetime.utcnow()
-                analysis.analysis_results = {
+                results_dict = {
                     "status": "completed",
                     "message": "No files found matching patterns",
                     "total_files": 0,
                     "branch": branch,
-                    "patterns": file_patterns
+                    "patterns": [str(p) for p in file_patterns] if file_patterns else []
                 }
+                analysis.analysis_results = sanitize_for_json(results_dict)
                 await db.commit()
                 return {
                     "repository_id": repository_id,
@@ -480,15 +486,16 @@ async def analyze_repository_files(
                 }
             
             # Update progress
-            analysis.analysis_results = {
+            results_dict = {
                 "status": "discovering_files",
                 "total_files": len(discovered_files),
                 "files_discovered": len(discovered_files),
                 "files_analyzed": 0,
                 "branch": branch,
-                "patterns": file_patterns,
+                "patterns": [str(p) for p in file_patterns] if file_patterns else [],
                 "started_at": datetime.utcnow().isoformat()
             }
+            analysis.analysis_results = sanitize_for_json(results_dict)
             await db.commit()
             
             # Initialize AI service
@@ -527,37 +534,48 @@ async def analyze_repository_files(
                     language_breakdown[language] = language_breakdown.get(language, 0) + 1
                     
                     # Analyze with AI service
-                    analysis_result = await ai_service.analyze_code(
+                    analysis_result = ai_service.get_review_for_code_with_ast(
                         code=content,
                         language=language,
-                        file_path=file_info['path']
+                        analysis_id=str(analysis.id)
                     )
                     
-                    # Extract issues and suggestions
-                    if analysis_result and 'issues' in analysis_result:
-                        for issue in analysis_result['issues']:
-                            issue['file'] = file_info['path']
-                            issue['line'] = issue.get('line', 0)
-                            all_issues.append(issue)
-                    
-                    if analysis_result and 'suggestions' in analysis_result:
-                        for suggestion in analysis_result['suggestions']:
-                            suggestion['file'] = file_info['path']
-                            all_suggestions.append(suggestion)
+                    # Extract issues and suggestions from AI result
+                    # The result is a list of suggestions/issues
+                    if analysis_result:
+                        for item in analysis_result:
+                            # Add file path to each item
+                            item['file'] = file_info['path']
+                            
+                            # Normalize line number field
+                            if 'line_number' in item:
+                                item['line'] = item['line_number']
+                            elif 'line' not in item:
+                                item['line'] = 0
+                            
+                            # Add all findings to issues list
+                            all_issues.append(item)
                     
                     files_analyzed += 1
                     
                     # Update progress every 5 files
                     if (idx + 1) % 5 == 0 or idx == len(discovered_files) - 1:
                         progress_percentage = ((idx + 1) / len(discovered_files)) * 100
-                        analysis.analysis_results = {
-                            **analysis.analysis_results,
+                        # Rebuild analysis_results to avoid spreading Pattern objects
+                        old_results = analysis.analysis_results or {}
+                        results_dict = {
                             "status": "analyzing",
+                            "total_files": old_results.get("total_files", len(discovered_files)),
+                            "files_discovered": old_results.get("files_discovered", len(discovered_files)),
                             "files_analyzed": files_analyzed,
                             "files_failed": files_failed,
                             "progress_percentage": round(progress_percentage, 2),
-                            "current_file": file_info['path']
+                            "current_file": file_info['path'],
+                            "branch": old_results.get("branch", branch),
+                            "patterns": [str(p) for p in file_patterns] if file_patterns else [],
+                            "started_at": old_results.get("started_at", datetime.utcnow().isoformat())
                         }
+                        analysis.analysis_results = sanitize_for_json(results_dict)
                         await db.commit()
                     
                 except Exception as file_error:
@@ -575,10 +593,12 @@ async def analyze_repository_files(
             analysis.issues_found = len(all_issues)
             analysis.errors_count = errors_count
             analysis.warnings_count = warnings_count
-            analysis.analysis_results = {
+            
+            # Build results dict
+            results_dict = {
                 "status": "completed",
                 "branch": branch,
-                "patterns": file_patterns,
+                "patterns": [str(p) for p in file_patterns] if file_patterns else [],
                 "total_files": len(discovered_files),
                 "files_analyzed": files_analyzed,
                 "files_failed": files_failed,
@@ -598,6 +618,9 @@ async def analyze_repository_files(
                 "has_more_issues": len(all_issues) > 100,
                 "has_more_suggestions": len(all_suggestions) > 50
             }
+            
+            # CRITICAL: Sanitize the entire results dict to remove ANY Pattern objects
+            analysis.analysis_results = sanitize_for_json(results_dict)
             
             await db.commit()
             

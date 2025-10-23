@@ -1,0 +1,193 @@
+/**
+ * Severity-based color coding CSS classes
+ * Ensures proper contrast ratios for accessibility compliance (WCAG 2.1 AA)
+ */
+
+/* Critical severity - Red theme */
+.severity-critical {
+  @apply bg-red-100 border-red-300 text-red-900;
+}
+
+.severity-critical-icon {
+  @apply text-red-600;
+}
+
+.severity-critical-badge {
+  @apply bg-red-100 text-red-800 border-red-200;
+}
+
+.severity-critical-hover:hover {
+  @apply bg-red-200;
+}
+
+/* High severity - Orange theme */
+.severity-high {
+  @apply bg-orange-100 border-orange-300 text-orange-900;
+}
+
+.severity-high-icon {
+  @apply text-orange-500;
+}
+
+.severity-high-badge {
+  @apply bg-orange-100 text-orange-800 border-orange-200;
+}
+
+.severity-high-hover:hover {
+  @apply bg-orange-200;
+}
+
+/* Warning severity - Yellow theme */
+.severity-warning {
+  @apply bg-yellow-100 border-yellow-300 text-yellow-900;
+}
+
+.severity-warning-icon {
+  @apply text-yellow-500;
+}
+
+.severity-warning-badge {
+  @apply bg-yellow-100 text-yellow-800 border-yellow-200;
+}
+
+.severity-warning-hover:hover {
+  @apply bg-yellow-200;
+}
+
+/* Low severity - Blue theme */
+.severity-low {
+  @apply bg-blue-100 border-blue-300 text-blue-900;
+}
+
+.severity-low-icon {
+  @apply text-blue-500;
+}
+
+.severity-low-badge {
+  @apply bg-blue-100 text-blue-800 border-blue-200;
+}
+
+.severity-low-hover:hover {
+  @apply bg-blue-200;
+}
+
+/* Info severity - Gray theme */
+.severity-info {
+  @apply bg-gray-100 border-gray-300 text-gray-900;
+}
+
+.severity-info-icon {
+  @apply text-gray-500;
+}
+
+.severity-info-badge {
+  @apply bg-gray-100 text-gray-800 border-gray-200;
+}
+
+.severity-info-hover:hover {
+  @apply bg-gray-200;
+}
+
+/* Suggestion severity - Green theme */
+.severity-suggestion {
+  @apply bg-green-100 border-green-300 text-green-900;
+}
+
+.severity-suggestion-icon {
+  @apply text-green-500;
+}
+
+.severity-suggestion-badge {
+  @apply bg-green-100 text-green-800 border-green-200;
+}
+
+.severity-suggestion-hover:hover {
+  @apply bg-green-200;
+}
+
+/* Error severity (legacy support) - Red theme */
+.severity-error {
+  @apply bg-red-100 border-red-300 text-red-900;
+}
+
+.severity-error-icon {
+  @apply text-red-500;
+}
+
+.severity-error-badge {
+  @apply bg-red-100 text-red-800 border-red-200;
+}
+
+.severity-error-hover:hover {
+  @apply bg-red-200;
+}
+
+/* Accessibility enhancements */
+.severity-container {
+  @apply transition-colors duration-200;
+}
+
+.severity-container:focus {
+  @apply ring-2 ring-blue-500 ring-inset outline-none;
+}
+
+.severity-container:focus-visible {
+  @apply ring-2 ring-blue-500 ring-inset outline-none;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .severity-critical {
+    @apply bg-red-200 border-red-500 text-red-950;
+  }
+  
+  .severity-high {
+    @apply bg-orange-200 border-orange-500 text-orange-950;
+  }
+  
+  .severity-warning {
+    @apply bg-yellow-200 border-yellow-500 text-yellow-950;
+  }
+  
+  .severity-low {
+    @apply bg-blue-200 border-blue-500 text-blue-950;
+  }
+  
+  .severity-info {
+    @apply bg-gray-200 border-gray-500 text-gray-950;
+  }
+  
+  .severity-suggestion {
+    @apply bg-green-200 border-green-500 text-green-950;
+  }
+  
+  .severity-error {
+    @apply bg-red-200 border-red-500 text-red-950;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .severity-container {
+    @apply transition-none;
+  }
+}
+
+/* Print styles */
+@media print {
+  .severity-critical,
+  .severity-high,
+  .severity-error {
+    @apply bg-gray-200 border-gray-400 text-black;
+  }
+  
+  .severity-warning {
+    @apply bg-gray-100 border-gray-300 text-black;
+  }
+  
+  .severity-low,
+  .severity-info,
+  .severity-suggestion {
+    @apply bg-white border-gray-300 text-black;
+  }
+}

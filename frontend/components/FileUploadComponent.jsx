@@ -8,19 +8,37 @@ import {
      CheckCircleIcon,
      AlertCircleIcon,
      LoaderIcon,
-     TrashIcon
+     TrashIcon,
+     RefreshCwIcon
 } from 'lucide-react';
 import fileService from '../services/fileService.js';
 import { validateFile, formatFileSize, isDragAndDropSupported } from '../utils/fileUtils.ts';
+import { useErrorHandler } from '../utils/errorHandler.jsx';
+import { ErrorUtils } from '../utils/errorHandler.js';
+import ErrorDisplay from './forms/ErrorDisplay';
 
 const FileUploadComponent = ({ onClose, onSuccess, maxFiles = 10 }) => {
      const [files, setFiles] = useState([]);
      const [uploading, setUploading] = useState(false);
      const [uploadProgress, setUploadProgress] = useState({});
-     const [errors, setErrors] = useState({});
+     const [validationErrors, setValidationErrors] = useState({});
      const [isDragOver, setIsDragOver] = useState(false);
      const fileInputRef = useRef(null);
      const dragCounter = useRef(0);
+
+     // Enhanced error handling with retry capability
+     const {
+          error: uploadError,
+          isRetrying,
+          retryCount,
+          executeWithRetry,
+          clearError,
+          handleError
+     } = useErrorHandler({
+          maxRetries: 3,
+          strategy: 'exponential',
+          baseDelay: 1000
+     });
 
      // Check if drag and drop is supported
      const dragDropSupported = isDragAndDropSupported();
@@ -31,44 +49,60 @@ const FileUploadComponent = ({ onClose, onSuccess, maxFiles = 10 }) => {
           addFiles(selectedFiles);
      }, []);
 
-     // Add files to the upload queue
+     // Add files to the upload queue with enhanced validation
      const addFiles = useCallback((newFiles) => {
           const validFiles = [];
           const newErrors = {};
 
           newFiles.forEach((file) => {
-               // Check if file already exists
-               if (files.some(f => f.name === file.name && f.size === file.size)) {
-                    newErrors[file.name] = 'File already added';
-                    return;
-               }
+               try {
+                    // Check if file already exists
+                    if (files.some(f => f.name === file.name && f.size === file.size)) {
+                         newErrors[file.name] = 'File already added';
+                         return;
+                    }
 
-               // Validate file
-               const validation = validateFile(file);
-               if (!validation.isValid) {
-                    newErrors[file.name] = validation.error;
-                    return;
-               }
+                    // Validate file using enhanced validation
+                    const validation = validateFile(file);
+                    if (!validation.isValid) {
+                         newErrors[file.name] = validation.error;
+                         return;
+                    }
 
-               // Check max files limit
-               if (files.length + validFiles.length >= maxFiles) {
-                    newErrors[file.name] = `Maximum ${maxFiles} files allowed`;
-                    return;
-               }
+                    // Check max files limit
+                    if (files.length + validFiles.length >= maxFiles) {
+                         newErrors[file.name] = `Maximum ${maxFiles} files allowed`;
+                         return;
+                    }
 
-               validFiles.push({
-                    file,
-                    id: `${file.name}-${file.size}-${Date.now()}`,
-                    name: file.name,
-                    size: file.size,
-                    type: file.type,
-                    status: 'pending' // pending, uploading, completed, error
-               });
+                    // Additional security checks
+                    if (file.name.includes('..') || file.name.includes('/') || file.name.includes('\\')) {
+                         newErrors[file.name] = 'Invalid file name';
+                         return;
+                    }
+
+                    validFiles.push({
+                         file,
+                         id: `${file.name}-${file.size}-${Date.now()}`,
+                         name: file.name,
+                         size: file.size,
+                         type: file.type,
+                         status: 'pending', // pending, uploading, completed, error
+                         retryCount: 0
+                    });
+               } catch (error) {
+                    newErrors[file.name] = ErrorUtils.formatErrorMessage(error);
+               }
           });
 
           setFiles(prev => [...prev, ...validFiles]);
-          setErrors(prev => ({ ...prev, ...newErrors }));
-     }, [files, maxFiles]);
+          setValidationErrors(prev => ({ ...prev, ...newErrors }));
+          
+          // Clear any previous upload errors when adding new files
+          if (validFiles.length > 0) {
+               clearError();
+          }
+     }, [files, maxFiles, clearError]);
 
      // Drag and drop handlers
      const handleDragEnter = useCallback((e) => {
@@ -110,7 +144,7 @@ const FileUploadComponent = ({ onClose, onSuccess, maxFiles = 10 }) => {
      // Remove file from queue
      const removeFile = (fileId) => {
           setFiles(prev => prev.filter(f => f.id !== fileId));
-          setErrors(prev => {
+          setValidationErrors(prev => {
                const newErrors = { ...prev };
                const file = files.find(f => f.id === fileId);
                if (file) {
@@ -118,13 +152,21 @@ const FileUploadComponent = ({ onClose, onSuccess, maxFiles = 10 }) => {
                }
                return newErrors;
           });
+          
+          // Clear upload progress for removed file
+          setUploadProgress(prev => {
+               const newProgress = { ...prev };
+               delete newProgress[fileId];
+               return newProgress;
+          });
      };
 
-     // Upload files
+     // Upload files with enhanced error handling and retry logic
      const handleUpload = async () => {
           if (files.length === 0) return;
 
           setUploading(true);
+          clearError();
           const uploadedFiles = [];
           const failedFiles = [];
 
@@ -139,15 +181,22 @@ const FileUploadComponent = ({ onClose, onSuccess, maxFiles = 10 }) => {
                               f.id === fileItem.id ? { ...f, status: 'uploading' } : f
                          ));
 
-                         // Upload file with progress tracking
-                         const result = await fileService.uploadFile(fileItem.file, {
-                              onProgress: (progress) => {
-                                   setUploadProgress(prev => ({
-                                        ...prev,
-                                        [fileItem.id]: progress
-                                   }));
+                         // Upload file with retry logic and progress tracking
+                         const result = await executeWithRetry(
+                              () => fileService.uploadFile(fileItem.file, {
+                                   onProgress: (progress) => {
+                                        setUploadProgress(prev => ({
+                                             ...prev,
+                                             [fileItem.id]: progress
+                                        }));
+                                   }
+                              }),
+                              {
+                                   operation: 'file_upload',
+                                   fileName: fileItem.name,
+                                   fileSize: fileItem.size
                               }
-                         });
+                         );
 
                          // Update status to completed
                          setFiles(prev => prev.map(f =>
@@ -159,17 +208,28 @@ const FileUploadComponent = ({ onClose, onSuccess, maxFiles = 10 }) => {
                     } catch (error) {
                          console.error(`Failed to upload ${fileItem.name}:`, error);
 
+                         // Create user-friendly error
+                         const uploadError = ErrorUtils.createFileUploadError(
+                              fileItem.name,
+                              error.userMessage || error.message || 'Upload failed'
+                         );
+
                          // Update status to error
                          setFiles(prev => prev.map(f =>
-                              f.id === fileItem.id ? { ...f, status: 'error' } : f
+                              f.id === fileItem.id ? { 
+                                   ...f, 
+                                   status: 'error',
+                                   error: uploadError.userMessage,
+                                   retryCount: (f.retryCount || 0) + 1
+                              } : f
                          ));
 
-                         setErrors(prev => ({
+                         setValidationErrors(prev => ({
                               ...prev,
-                              [fileItem.name]: error.response?.data?.message || 'Upload failed'
+                              [fileItem.name]: uploadError.userMessage
                          }));
 
-                         failedFiles.push(fileItem);
+                         failedFiles.push({ ...fileItem, error: uploadError });
                     }
                }
 
@@ -178,21 +238,47 @@ const FileUploadComponent = ({ onClose, onSuccess, maxFiles = 10 }) => {
                     onSuccess(uploadedFiles);
                }
 
-               // If all files failed, don't close the modal
-               if (failedFiles.length === files.length) {
-                    setUploading(false);
-                    return;
+               // If all files failed, show general error
+               if (failedFiles.length === files.length && failedFiles.length > 0) {
+                    handleError(
+                         new Error('All file uploads failed'),
+                         { 
+                              operation: 'batch_upload',
+                              failedCount: failedFiles.length,
+                              totalCount: files.length
+                         }
+                    );
                }
 
           } catch (error) {
                console.error('Upload process failed:', error);
-               setErrors(prev => ({
-                    ...prev,
-                    general: 'Upload process failed. Please try again.'
-               }));
+               handleError(error, { operation: 'upload_process' });
           } finally {
                setUploading(false);
           }
+     };
+
+     // Retry failed file uploads
+     const retryFailedUploads = async () => {
+          const failedFiles = files.filter(f => f.status === 'error');
+          if (failedFiles.length === 0) return;
+
+          // Reset failed files to pending status
+          setFiles(prev => prev.map(f => 
+               f.status === 'error' ? { ...f, status: 'pending', error: null } : f
+          ));
+
+          // Clear validation errors for failed files
+          setValidationErrors(prev => {
+               const newErrors = { ...prev };
+               failedFiles.forEach(file => {
+                    delete newErrors[file.name];
+               });
+               return newErrors;
+          });
+
+          // Retry upload
+          await handleUpload();
      };
 
      // Open file dialog
@@ -231,9 +317,11 @@ const FileUploadComponent = ({ onClose, onSuccess, maxFiles = 10 }) => {
           }
      };
 
-     const hasErrors = Object.keys(errors).length > 0;
-     const canUpload = files.length > 0 && !uploading;
+     const hasValidationErrors = Object.keys(validationErrors).length > 0;
+     const hasFailedUploads = files.some(f => f.status === 'error');
+     const canUpload = files.length > 0 && !uploading && !isRetrying;
      const allCompleted = files.length > 0 && files.every(f => f.status === 'completed');
+     const canRetry = hasFailedUploads && !uploading && !isRetrying;
 
      return (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -286,12 +374,24 @@ const FileUploadComponent = ({ onClose, onSuccess, maxFiles = 10 }) => {
                               </p>
                          </div>
 
-                         {/* Error Messages */}
-                         {hasErrors && (
+                         {/* Upload Error Display */}
+                         {uploadError && (
+                              <div className="mb-6">
+                                   <ErrorDisplay
+                                        error={uploadError}
+                                        onRetry={retryFailedUploads}
+                                        onDismiss={clearError}
+                                        showRetry={files.some(f => f.status === 'error')}
+                                   />
+                              </div>
+                         )}
+
+                         {/* Validation Errors */}
+                         {Object.keys(validationErrors).length > 0 && (
                               <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-                                   <h4 className="text-sm font-medium text-red-800 mb-2">Upload Errors:</h4>
+                                   <h4 className="text-sm font-medium text-red-800 mb-2">File Validation Errors:</h4>
                                    <ul className="text-sm text-red-700 space-y-1">
-                                        {Object.entries(errors).map(([fileName, error]) => (
+                                        {Object.entries(validationErrors).map(([fileName, error]) => (
                                              <li key={fileName}>
                                                   <strong>{fileName}:</strong> {error}
                                              </li>
@@ -372,14 +472,33 @@ const FileUploadComponent = ({ onClose, onSuccess, maxFiles = 10 }) => {
                                    {allCompleted ? 'Close' : 'Cancel'}
                               </button>
 
+                              {/* Retry button for failed uploads */}
+                              {canRetry && (
+                                   <button
+                                        onClick={retryFailedUploads}
+                                        disabled={!canRetry}
+                                        className="px-4 py-2 text-sm font-medium text-white bg-yellow-600 border border-transparent rounded-lg hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+                                   >
+                                        <RefreshCwIcon className="h-4 w-4" />
+                                        <span>Retry Failed</span>
+                                   </button>
+                              )}
+
                               {!allCompleted && (
                                    <button
                                         onClick={handleUpload}
                                         disabled={!canUpload}
                                         className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
                                    >
-                                        {uploading && <LoaderIcon className="h-4 w-4 animate-spin" />}
-                                        <span>{uploading ? 'Uploading...' : 'Upload Files'}</span>
+                                        {(uploading || isRetrying) && <LoaderIcon className="h-4 w-4 animate-spin" />}
+                                        <span>
+                                             {isRetrying 
+                                                  ? `Retrying... (${retryCount}/3)` 
+                                                  : uploading 
+                                                  ? 'Uploading...' 
+                                                  : 'Upload Files'
+                                             }
+                                        </span>
                                    </button>
                               )}
                          </div>

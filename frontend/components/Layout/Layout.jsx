@@ -16,7 +16,7 @@ export function Layout() {
       {/* Sidebar overlay */}
       {showSidebar && <Sidebar isOpen={sidebarOpen} setIsOpen={closeSidebar} />}
 
-      <main className="flex-1 overflow-y-auto p-4 md:p-6 text-gray-900">
+      <main className="flex-1 overflow-y-auto p-4 md:p-6 text-gray-900 relative z-0">
         <Outlet />
       </main>
       <Footer />

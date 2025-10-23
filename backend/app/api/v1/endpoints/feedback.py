@@ -26,7 +26,7 @@ from app.api.v1.endpoints.auth import get_current_active_user, get_current_activ
 router = APIRouter()
 
 
-@router.post("/feedback", response_model=FeedbackResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=FeedbackResponse, status_code=status.HTTP_201_CREATED)
 def submit_feedback(
     *,
     db: Session = Depends(get_db),
@@ -231,43 +231,26 @@ def submit_bulk_feedback(
         )
 
 
-@router.get("/feedback/{issue_id}", response_model=list[FeedbackResponse])
-def get_feedback_for_issue(
+@router.get("/issue/{issue_id}", response_model=list[FeedbackResponse])
+def get_feedback_for_issue_alt(
     *,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
     issue_id: str,
 ) -> Any:
     """
-    Get all feedback records for a specific issue.
+    Get all feedback records for a specific issue (alternative route).
     
-    This endpoint returns all feedback submitted for a particular code issue,
-    which can be useful for understanding how different users responded to
-    the same suggestion.
+    This endpoint returns all feedback submitted for a particular code issue.
+    Alternative route for compatibility with frontend.
     
     Requirements: 5.1, 5.2
     """
-    try:
-        feedback_service = FeedbackService(db)
-        feedback_records = feedback_service.get_feedback_for_issue(issue_id)
-        
-        return [
-            FeedbackResponse(
-                id=record.id,
-                issue_id=record.issue_id,
-                feedback_type=record.feedback_type,
-                feedback_value=record.feedback_value,
-                created_at=record.created_at,
-                is_validated=record.is_validated
-            )
-            for record in feedback_records
-        ]
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve feedback for issue: {str(e)}"
-        )
+    return get_feedback_for_issue(
+        db=db,
+        current_user=current_user,
+        issue_id=issue_id
+    )
 
 
 @router.post("/feedback/{feedback_id}/validate", response_model=FeedbackResponse)
@@ -345,4 +328,157 @@ def get_feedback_trends(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve feedback trends: {str(e)}"
+        )
+
+
+@router.get("/feedback/statistics", response_model=dict)
+def get_feedback_statistics_with_timeframe(
+    *,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    timeframe: str = Query("week", description="Time period: week, month, quarter, year, all"),
+    user_id: Optional[int] = Query(None, description="Filter by user ID (admin only)"),
+) -> Any:
+    """
+    Get comprehensive feedback statistics with timeframe parameter.
+    
+    This endpoint provides:
+    - Aggregation queries for feedback by type (accept/reject/modify)
+    - Feedback trends over time periods
+    - Model performance metrics based on feedback data
+    - Pattern-specific statistics
+    
+    Requirements: 2.2, 2.3, 2.4, 2.5
+    """
+    try:
+        # Check if user is requesting data for another user (admin only)
+        if user_id and user_id != current_user.id:
+            if not hasattr(current_user, 'role') or current_user.role != 'admin':
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Admin access required to view other users' data"
+                )
+        
+        # Use current user ID if not specified or not admin
+        target_user_id = user_id if user_id and hasattr(current_user, 'role') and current_user.role == 'admin' else current_user.id
+        
+        # Validate timeframe parameter
+        valid_timeframes = ["week", "month", "quarter", "year", "all"]
+        if timeframe not in valid_timeframes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid timeframe. Must be one of: {', '.join(valid_timeframes)}"
+            )
+        
+        feedback_service = FeedbackService(db)
+        statistics = feedback_service.get_feedback_statistics_with_timeframe(
+            timeframe=timeframe,
+            user_id=target_user_id
+        )
+        
+        return statistics
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve feedback statistics: {str(e)}"
+        )
+
+
+@router.get("/statistics", response_model=dict)
+def get_feedback_statistics_endpoint(
+    *,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    timeframe: str = Query("week", description="Time period for analysis (week, month, quarter, year)"),
+) -> Any:
+    """
+    Get comprehensive feedback statistics with timeframe parameter.
+    
+    This endpoint provides:
+    - Aggregation queries for feedback by type (accept/reject/modify)
+    - Feedback trends over time periods
+    - Model performance metrics based on feedback data
+    
+    Requirements: 2.2, 2.3, 2.4, 2.5
+    """
+    try:
+        print(f"[DEBUG] /statistics endpoint called")
+        print(f"[DEBUG] User ID: {current_user.id}")
+        print(f"[DEBUG] Timeframe: {timeframe}")
+        
+        # Validate timeframe parameter
+        valid_timeframes = ["week", "month", "quarter", "year"]
+        if timeframe not in valid_timeframes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid timeframe. Must be one of: {', '.join(valid_timeframes)}"
+            )
+        
+        feedback_service = FeedbackService(db)
+        statistics = feedback_service.get_feedback_statistics_with_timeframe(
+            user_id=current_user.id,
+            timeframe=timeframe
+        )
+        
+        print(f"[DEBUG] Statistics type: {type(statistics)}")
+        print(f"[DEBUG] Statistics keys: {statistics.keys() if isinstance(statistics, dict) else 'Not a dict'}")
+        print(f"[DEBUG] Total feedback: {statistics.get('total_feedback') if isinstance(statistics, dict) else 'N/A'}")
+        
+        return statistics
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[DEBUG] Exception occurred: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve feedback statistics: {str(e)}"
+        )
+
+
+# IMPORTANT: This catch-all route must be at the end to avoid matching specific routes
+@router.get("/{issue_id}", response_model=list[FeedbackResponse])
+def get_feedback_for_issue(
+    *,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    issue_id: str,
+) -> Any:
+    """
+    Get all feedback records for a specific issue.
+    
+    This endpoint returns all feedback submitted for a particular code issue,
+    which can be useful for understanding how different users responded to
+    the same suggestion.
+    
+    Requirements: 5.1, 5.2
+    
+    NOTE: This route uses a path parameter and must be defined AFTER all
+    specific routes (like /statistics, /history, etc.) to avoid conflicts.
+    """
+    try:
+        feedback_service = FeedbackService(db)
+        feedback_records = feedback_service.get_feedback_for_issue(issue_id)
+        
+        return [
+            FeedbackResponse(
+                id=record.id,
+                issue_id=record.issue_id,
+                feedback_type=record.feedback_type,
+                feedback_value=record.feedback_value,
+                created_at=record.created_at,
+                is_validated=record.is_validated
+            )
+            for record in feedback_records
+        ]
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve feedback for issue: {str(e)}"
         )

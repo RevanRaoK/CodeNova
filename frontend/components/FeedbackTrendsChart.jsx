@@ -13,16 +13,23 @@ import {
 } from 'recharts';
 
 export function FeedbackTrendsChart({ data, timeRange }) {
+  console.log('FeedbackTrendsChart received data:', data);
+  
+  // Ensure data is an array
+  const dataArray = Array.isArray(data) ? data : [];
+  
   // Transform data for the chart
-  const chartData = data.map(item => ({
+  const chartData = dataArray.map(item => ({
     date: item.date || item.name,
-    accepts: item.accepts || 0,
-    rejects: item.rejects || 0,
-    modifies: item.modifies || 0,
-    total: (item.accepts || 0) + (item.rejects || 0) + (item.modifies || 0),
-    acceptanceRate: item.acceptanceRate || 
-      ((item.accepts || 0) / Math.max((item.accepts || 0) + (item.rejects || 0) + (item.modifies || 0), 1)) * 100
+    accepts: item.accept || item.accepts || 0,
+    rejects: item.reject || item.rejects || 0,
+    modifies: item.modify || item.modifies || 0,
+    total: item.total || ((item.accept || item.accepts || 0) + (item.reject || item.rejects || 0) + (item.modify || item.modifies || 0)),
+    acceptanceRate: item.acceptance_rate || item.acceptanceRate || 
+      ((item.accept || item.accepts || 0) / Math.max(item.total || ((item.accept || item.accepts || 0) + (item.reject || item.rejects || 0) + (item.modify || item.modifies || 0)), 1)) * 100
   }));
+  
+  console.log('Transformed chartData:', chartData);
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {

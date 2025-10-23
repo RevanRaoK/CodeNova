@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Filter, Edit, Trash2, Plus, ChevronDown, ChevronUp, UserPlus } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Filter, Edit, ChevronDown, ChevronUp } from 'lucide-react';
 import adminService from '../../services/adminService.js';
 import ConfirmationDialog from '../ConfirmationDialog.jsx';
+import UserEditModal from './UserEditModal.jsx';
 
 /**
  * User management panel for admin dashboard
@@ -18,6 +19,7 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
      const [totalPages, setTotalPages] = useState(1);
      const [showFilters, setShowFilters] = useState(false);
      const [editingUser, setEditingUser] = useState(null);
+     const [modalLoading, setModalLoading] = useState(false);
      const [confirmDialog, setConfirmDialog] = useState(null);
 
      const itemsPerPage = 10;
@@ -40,10 +42,19 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
                     sortOrder
                });
 
-               setUsers(response.users || []);
-               setTotalPages(Math.ceil((response.total || 0) / itemsPerPage));
+               console.log('Users response:', response);
+               // Backend returns array directly, not wrapped in {users: []}
+               const usersArray = Array.isArray(response) ? response : (response.users || []);
+               setUsers(usersArray);
+               setTotalPages(Math.ceil((response.total || usersArray.length) / itemsPerPage));
           } catch (error) {
-               onError(error);
+               console.error('Error loading users:', error);
+               if (onError) {
+                    onError(new Error(`Failed to load users: ${error.message}`));
+               }
+               // Set empty state on error
+               setUsers([]);
+               setTotalPages(1);
           } finally {
                setLoading(false);
           }
@@ -52,20 +63,116 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
      const loadTeams = async () => {
           try {
                const response = await adminService.getAllTeams();
-               setTeams(response.teams || []);
+               console.log('Teams response:', response);
+               // Backend returns array directly, not wrapped in {teams: []}
+               const teamsArray = Array.isArray(response) ? response : (response.teams || []);
+               setTeams(teamsArray);
           } catch (error) {
                console.error('Failed to load teams:', error);
+               // Don't show error to user for teams loading failure, just log it
+               // Teams are optional for user management
+               setTeams([]);
           }
      };
 
      const handleRoleChange = async (userId, newRole) => {
           try {
                await adminService.updateUserRole(userId, newRole);
-               onSuccess(`User role updated to ${newRole}`);
-               loadUsers(); // Refresh the list
+               if (onSuccess) {
+                    onSuccess(`User role updated to ${newRole.replace('_', ' ')}`);
+               }
+               await loadUsers(); // Refresh the list
           } catch (error) {
-               onError(error);
+               console.error('Failed to update user role:', error);
+               if (onError) {
+                    onError(new Error(`Failed to update role: ${error.message}`));
+               }
+               // Reload users to revert the UI change
+               await loadUsers();
           }
+     };
+
+     const handleModalSave = async (userId, changes) => {
+          try {
+               setModalLoading(true);
+               
+               // Apply changes sequentially to handle dependencies and provide better error messages
+               const changeDescriptions = [];
+               let hasErrors = false;
+
+               // Update role first if changed
+               if (changes.role) {
+                    try {
+                         await adminService.updateUserRole(userId, changes.role);
+                         changeDescriptions.push(`role to ${changes.role}`);
+                    } catch (error) {
+                         console.error('Failed to update user role:', error);
+                         if (onError) {
+                              onError(new Error(`Failed to update role: ${error.message}`));
+                         }
+                         hasErrors = true;
+                    }
+               }
+
+               // Update team assignment if changed
+               if (changes.team_id !== undefined && !hasErrors) {
+                    try {
+                         if (changes.team_id) {
+                              await adminService.assignUserToTeam(userId, changes.team_id);
+                              const team = teams.find(t => t.id === changes.team_id);
+                              changeDescriptions.push(`assigned to team ${team?.name || 'Unknown'}`);
+                         } else {
+                              await adminService.removeUserFromTeam(userId);
+                              changeDescriptions.push('removed from team');
+                         }
+                    } catch (error) {
+                         console.error('Failed to update team assignment:', error);
+                         if (onError) {
+                              onError(new Error(`Failed to update team assignment: ${error.message}`));
+                         }
+                         hasErrors = true;
+                    }
+               }
+
+               // Update status if changed
+               if (changes.is_active !== undefined && !hasErrors) {
+                    try {
+                         await adminService.updateUserStatus(userId, changes.is_active);
+                         changeDescriptions.push(`status to ${changes.is_active ? 'active' : 'inactive'}`);
+                    } catch (error) {
+                         console.error('Failed to update user status:', error);
+                         if (onError) {
+                              onError(new Error(`Failed to update status: ${error.message}`));
+                         }
+                         hasErrors = true;
+                    }
+               }
+
+               // Only show success message and close modal if no errors occurred
+               if (!hasErrors) {
+                    const description = changeDescriptions.length > 0 
+                         ? `User ${changeDescriptions.join(', ')}`
+                         : 'User updated successfully';
+                    
+                    if (onSuccess) {
+                         onSuccess(description);
+                    }
+                    setEditingUser(null);
+                    await loadUsers(); // Refresh the list
+               }
+          } catch (error) {
+               console.error('Unexpected error in handleModalSave:', error);
+               if (onError) {
+                    onError(new Error(`Failed to update user: ${error.message}`));
+               }
+          } finally {
+               setModalLoading(false);
+          }
+     };
+
+     const handleModalCancel = () => {
+          setEditingUser(null);
+          setModalLoading(false);
      };
 
      const handleSort = (field) => {
@@ -336,6 +443,18 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
                          </div>
                     )}
                </div>
+
+               {/* User Edit Modal */}
+               {editingUser && (
+                    <UserEditModal
+                         user={editingUser}
+                         teams={teams}
+                         currentUser={currentUser}
+                         onSave={handleModalSave}
+                         onCancel={handleModalCancel}
+                         loading={modalLoading}
+                    />
+               )}
 
                {/* Confirmation Dialog */}
                {confirmDialog && (

@@ -112,4 +112,63 @@ class NotificationService:
     
     def get_notification_channels(self) -> list:
         """Get all registered notification channels."""
-        return self.notification_channels
+        return self.notification_channels    
+
+    async def send_settings_update_notification(self, user_id: int, updated_fields: list):
+        """Send real-time notification for settings updates."""
+        try:
+            notification_data = {
+                "type": "settings_update",
+                "user_id": user_id,
+                "updated_fields": updated_fields,
+                "timestamp": datetime.utcnow().isoformat(),
+                "message": f"Settings updated: {', '.join(updated_fields)}"
+            }
+            
+            logger.info(f"Settings update notification for user {user_id}: {json.dumps(notification_data)}")
+            await self._broadcast_notification(notification_data)
+            
+        except Exception as e:
+            logger.error(f"Failed to send settings update notification: {e}")
+    
+    async def send_theme_update_notification(self, user_id: int, theme: str):
+        """Send real-time notification for theme updates."""
+        try:
+            notification_data = {
+                "type": "theme_update",
+                "user_id": user_id,
+                "theme": theme,
+                "timestamp": datetime.utcnow().isoformat(),
+                "message": f"Theme changed to {theme}"
+            }
+            
+            logger.info(f"Theme update notification for user {user_id}: {json.dumps(notification_data)}")
+            await self._broadcast_notification(notification_data)
+            
+        except Exception as e:
+            logger.error(f"Failed to send theme update notification: {e}")
+    
+    async def send_security_update_notification(self, user_id: int, updated_settings: dict):
+        """Send real-time notification for security settings updates."""
+        try:
+            notification_data = {
+                "type": "security_update",
+                "user_id": user_id,
+                "updated_settings": updated_settings,
+                "timestamp": datetime.utcnow().isoformat(),
+                "message": "Security settings updated"
+            }
+            
+            logger.info(f"Security update notification for user {user_id}: {json.dumps(notification_data)}")
+            await self._broadcast_notification(notification_data)
+            
+        except Exception as e:
+            logger.error(f"Failed to send security update notification: {e}")
+    
+    async def _broadcast_notification(self, notification_data: dict):
+        """Broadcast notification to all channels."""
+        # This is a placeholder for actual notification broadcasting
+        # In a real implementation, this would send to WebSocket connections,
+        # Server-Sent Events, or a message queue
+        logger.debug(f"Broadcasting notification: {notification_data}")
+        pass

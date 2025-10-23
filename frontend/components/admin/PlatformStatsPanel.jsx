@@ -276,52 +276,7 @@ const PlatformStatsPanel = ({ onError, onSuccess, currentUser }) => {
             )}
           </div>
 
-          {/* System Health */}
-          {stats.system_health && (
-            <div className="bg-white rounded-lg shadow-sm border p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">System Health</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                <div className="text-center">
-                  <div className={`inline-flex items-center justify-center w-12 h-12 rounded-full ${stats.system_health.database_status === 'healthy' ? 'bg-green-100' : 'bg-red-100'
-                    }`}>
-                    <Database className={`h-6 w-6 ${stats.system_health.database_status === 'healthy' ? 'text-green-600' : 'text-red-600'
-                      }`} />
-                  </div>
-                  <p className="text-sm font-medium text-gray-900 mt-2">Database</p>
-                  <p className={`text-sm capitalize ${stats.system_health.database_status === 'healthy' ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                    {stats.system_health.database_status}
-                  </p>
-                </div>
 
-                <div className="text-center">
-                  <div className={`inline-flex items-center justify-center w-12 h-12 rounded-full ${stats.system_health.queue_status === 'healthy' ? 'bg-green-100' : 'bg-red-100'
-                    }`}>
-                    <Activity className={`h-6 w-6 ${stats.system_health.queue_status === 'healthy' ? 'text-green-600' : 'text-red-600'
-                      }`} />
-                  </div>
-                  <p className="text-sm font-medium text-gray-900 mt-2">Queue System</p>
-                  <p className={`text-sm capitalize ${stats.system_health.queue_status === 'healthy' ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                    {stats.system_health.queue_status}
-                  </p>
-                </div>
-
-                <div className="text-center">
-                  <div className={`inline-flex items-center justify-center w-12 h-12 rounded-full ${stats.system_health.storage_status === 'healthy' ? 'bg-green-100' : 'bg-red-100'
-                    }`}>
-                    <Clock className={`h-6 w-6 ${stats.system_health.storage_status === 'healthy' ? 'text-green-600' : 'text-red-600'
-                      }`} />
-                  </div>
-                  <p className="text-sm font-medium text-gray-900 mt-2">File Storage</p>
-                  <p className={`text-sm capitalize ${stats.system_health.storage_status === 'healthy' ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                    {stats.system_health.storage_status}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
         </>
       ) : (
         <div className="bg-white rounded-lg shadow-sm border p-12 text-center">

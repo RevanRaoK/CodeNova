@@ -4,6 +4,8 @@ import { useNotification } from './NotificationContext';
 
 const AuthContext = createContext();
 
+export { AuthContext };
+
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -44,6 +46,17 @@ export const AuthProvider = ({ children }) => {
           // Verify token is still valid
           const tokenValid = await authService.ensureValidToken();
           if (tokenValid) {
+            // If preferences are not in localStorage, fetch them
+            if (!currentUser.preferences && currentUser.id) {
+              try {
+                const userService = (await import('../services/userService')).default;
+                const preferences = await userService.getUserPreferences(currentUser.id);
+                currentUser.preferences = preferences;
+                authService.setUserData(currentUser); // Update localStorage
+              } catch (prefError) {
+                console.warn('Could not load user preferences on auth check:', prefError);
+              }
+            }
             setUser(currentUser);
             setToken(currentToken);
             setIsAuthenticated(true);
@@ -73,9 +86,21 @@ export const AuthProvider = ({ children }) => {
     try {
       setIsLoading(true);
       const result = await authService.login(credentials);
+      
+      // Fetch user preferences after login
+      try {
+        const userService = (await import('../services/userService')).default;
+        const preferences = await userService.getUserPreferences(result.user.id);
+        result.user.preferences = preferences;
+      } catch (prefError) {
+        console.warn('Could not load user preferences:', prefError);
+        // Continue with login even if preferences fail to load
+      }
+      
       setUser(result.user);
       setToken(result.token);
       setIsAuthenticated(true);
+      authService.setUserData(result.user); // Update localStorage with preferences
       showSuccess(`Welcome back, ${result.user.username || result.user.email}!`);
       return result;
     } catch (error) {
@@ -93,9 +118,20 @@ export const AuthProvider = ({ children }) => {
     try {
       setIsLoading(true);
       const result = await authService.register(userData);
+      
+      // Fetch user preferences after registration
+      try {
+        const userService = (await import('../services/userService')).default;
+        const preferences = await userService.getUserPreferences(result.user.id);
+        result.user.preferences = preferences;
+      } catch (prefError) {
+        console.warn('Could not load user preferences:', prefError);
+      }
+      
       setUser(result.user);
       setToken(result.token);
       setIsAuthenticated(true);
+      authService.setUserData(result.user); // Update localStorage with preferences
       showSuccess('Account created successfully! Welcome to CodeNova AI.');
       return result;
     } catch (error) {
@@ -148,9 +184,19 @@ export const AuthProvider = ({ children }) => {
       const result = await authService.loginWithGoogle(credentialResponse);
       console.log('✅ AuthService response:', result);
 
+      // Fetch user preferences after login
+      try {
+        const userService = (await import('../services/userService')).default;
+        const preferences = await userService.getUserPreferences(result.user.id);
+        result.user.preferences = preferences;
+      } catch (prefError) {
+        console.warn('Could not load user preferences:', prefError);
+      }
+
       setUser(result.user);
       setToken(result.token);
       setIsAuthenticated(true);
+      authService.setUserData(result.user); // Update localStorage with preferences
       console.log('🎉 User state updated, showing success message');
       showSuccess(`Welcome, ${result.user.full_name || result.user.email}!`);
       return result;
@@ -169,10 +215,15 @@ export const AuthProvider = ({ children }) => {
 
   // Method to update user data (for profile updates)
   const updateUser = (userData) => {
-    setUser(prevUser => ({
-      ...prevUser,
-      ...userData
-    }));
+    setUser(prevUser => {
+      const updatedUser = {
+        ...prevUser,
+        ...userData
+      };
+      // Also update localStorage so changes persist across sessions
+      authService.setUserData(updatedUser);
+      return updatedUser;
+    });
   };
 
   const value = {

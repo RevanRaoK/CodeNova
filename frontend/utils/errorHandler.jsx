@@ -1,5 +1,5 @@
-import React from 'react';
-import { logger } from './environment';
+import React, { useState, useCallback } from 'react';
+import { logger } from './environment.ts';
 
 /**
  * Centralized error handling utility for the application
@@ -416,6 +416,72 @@ class ErrorHandler {
 // Export singleton instance
 const errorHandler = new ErrorHandler();
 export default errorHandler;
+
+/**
+ * React hook for error handling with retry logic
+ */
+export function useErrorHandler(options = {}) {
+     const [error, setError] = useState(null);
+     const [isRetrying, setIsRetrying] = useState(false);
+     const [retryCount, setRetryCount] = useState(0);
+
+     const maxRetries = options.maxRetries || 3;
+     const strategy = options.strategy || 'exponential';
+
+     const clearError = useCallback(() => {
+          setError(null);
+          setRetryCount(0);
+          setIsRetrying(false);
+     }, []);
+
+     const executeWithRetry = useCallback(async (operation, context = {}) => {
+          let lastError = null;
+          
+          for (let attempt = 0; attempt <= maxRetries; attempt++) {
+               try {
+                    const result = await operation();
+                    clearError();
+                    return result;
+               } catch (err) {
+                    lastError = err;
+                    const errorInfo = errorHandler.handleApiError(err, context);
+                    setError(errorInfo);
+
+                    if (attempt < maxRetries && errorInfo.isRetryable) {
+                         setIsRetrying(true);
+                         setRetryCount(attempt + 1);
+
+                         // Calculate delay based on strategy
+                         let delay = 1000;
+                         if (strategy === 'exponential') {
+                              delay = Math.min(1000 * Math.pow(2, attempt), 10000);
+                         } else if (strategy === 'linear') {
+                              delay = 1000 * (attempt + 1);
+                         }
+
+                         await new Promise(resolve => setTimeout(resolve, delay));
+                    } else {
+                         setIsRetrying(false);
+                         throw err;
+                    }
+               }
+          }
+
+          setIsRetrying(false);
+          throw lastError;
+     }, [maxRetries, strategy, clearError]);
+
+     const canRetry = error?.isRetryable && retryCount < maxRetries;
+
+     return {
+          error,
+          isRetrying,
+          retryCount,
+          executeWithRetry,
+          clearError,
+          canRetry
+     };
+}
 
 // Export React Error Boundary component
 export class ErrorBoundary extends React.Component {

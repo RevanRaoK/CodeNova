@@ -15,8 +15,9 @@ from app.services.admin_service import AdminService
 from app.schemas.user import UserResponse, UserRoleUpdate
 from app.schemas.team import (
     TeamCreate, TeamUpdate, TeamResponse, TeamAnalytics, 
-    PlatformAnalytics, AuditLogEntry, TeamMemberResponse
+    DashboardMetrics, PlatformAnalytics, TeamMemberResponse, FeedbackStatistics
 )
+from app.schemas.audit_log import AuditLogResponse as AuditLogEntry
 
 router = APIRouter()
 
@@ -311,6 +312,20 @@ async def get_team_members(
 
 # Analytics Endpoints
 
+@router.get("/analytics/dashboard-metrics", response_model=DashboardMetrics)
+async def get_dashboard_metrics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """
+    Get dashboard metrics including reviews completed today.
+    
+    Requirements: 1.1, 1.2, 1.3, 1.4, 12.1, 12.2, 12.3, 12.4, 12.5
+    """
+    admin_service = AdminService(db)
+    metrics = await admin_service.get_dashboard_metrics()
+    return metrics
+
 @router.get("/analytics/platform", response_model=PlatformAnalytics)
 async def get_platform_analytics(
     db: Session = Depends(get_db),
@@ -381,6 +396,32 @@ async def get_team_analytics(
         )
     
     return analytics
+
+
+@router.get("/analytics/feedback-stats", response_model=FeedbackStatistics)
+async def get_feedback_statistics(
+    team_id: Optional[str] = Query(None, description="Filter by team ID (null for all users)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """
+    Get feedback statistics with optional team filtering.
+    
+    Requirements: 8.1, 8.2, 8.3, 8.4, 8.5
+    """
+    admin_service = AdminService(db)
+    
+    # If team_id is provided, verify it exists
+    if team_id:
+        team = await admin_service.get_team_by_id(team_id)
+        if not team:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Team not found"
+            )
+    
+    statistics = admin_service.get_feedback_statistics(team_id=team_id)
+    return statistics
 
 
 # Audit Logging Endpoints

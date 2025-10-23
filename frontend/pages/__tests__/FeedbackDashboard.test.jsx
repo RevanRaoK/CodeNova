@@ -40,20 +40,18 @@ describe('FeedbackDashboard', () => {
   const mockStats = {
     totalFeedback: 150,
     acceptanceRate: 0.75,
-    activeUsers: 25,
-    resolvedIssues: 80,
     feedbackByType: [
-      { feedbackType: 'accept', count: 75 },
-      { feedbackType: 'reject', count: 50 },
-      { feedbackType: 'modify', count: 25 }
+      { type: 'Accept', count: 75 },
+      { type: 'Reject', count: 50 },
+      { type: 'Modify', count: 25 }
     ],
     feedbackTrends: [
-      { date: '2024-01-01', accepts: 10, rejects: 5, modifies: 2 },
-      { date: '2024-01-02', accepts: 15, rejects: 8, modifies: 3 }
+      { date: '2024-01-01', accept: 10, reject: 5, modify: 2, total: 17 },
+      { date: '2024-01-02', accept: 15, reject: 8, modify: 3, total: 26 }
     ],
     modelPerformance: [
-      { version: 'v1.0.0', accuracy: 0.85, precision: 0.82, recall: 0.88, f1Score: 0.85 },
-      { version: 'v1.1.0', accuracy: 0.87, precision: 0.84, recall: 0.90, f1Score: 0.87 }
+      { metric: 'Acceptance Rate', value: 75.0, unit: '%', description: 'Percentage of suggestions accepted by users' },
+      { metric: 'Suggestion Quality Score', value: 87.5, unit: '%', description: 'Weighted quality metric' }
     ]
   };
 
@@ -66,8 +64,10 @@ describe('FeedbackDashboard', () => {
     
     render(<FeedbackDashboard />);
     
-    expect(screen.getByText('Feedback Dashboard')).toBeInTheDocument();
-    expect(screen.getByText('Monitor feedback trends and model performance')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('Feedback Dashboard')).toBeInTheDocument();
+      expect(screen.getByText('Monitor feedback trends and your feedback history')).toBeInTheDocument();
+    });
   });
 
   it('displays loading state initially', () => {
@@ -86,25 +86,29 @@ describe('FeedbackDashboard', () => {
     await waitFor(() => {
       expect(screen.getByText('150')).toBeInTheDocument(); // Total Feedback
       expect(screen.getByText('75.0%')).toBeInTheDocument(); // Acceptance Rate
-      expect(screen.getByText('25')).toBeInTheDocument(); // Active Users
-      expect(screen.getByText('80')).toBeInTheDocument(); // Resolved Issues
+      expect(screen.getByText('3')).toBeInTheDocument(); // Feedback Types count
     });
 
     expect(screen.getByText('Total Feedback')).toBeInTheDocument();
     expect(screen.getByText('Acceptance Rate')).toBeInTheDocument();
-    expect(screen.getByText('Active Users')).toBeInTheDocument();
-    expect(screen.getByText('Issues Resolved')).toBeInTheDocument();
+    expect(screen.getByText('Feedback Types')).toBeInTheDocument();
+    
+    // Verify Active Users and Issues Resolved are NOT present
+    expect(screen.queryByText('Active Users')).not.toBeInTheDocument();
+    expect(screen.queryByText('Issues Resolved')).not.toBeInTheDocument();
   });
 
-  it('renders time range selector buttons', () => {
+  it('renders time range selector buttons', async () => {
     feedbackService.getFeedbackStats.mockResolvedValue(mockStats);
     
     render(<FeedbackDashboard />);
     
-    expect(screen.getByText('Day')).toBeInTheDocument();
-    expect(screen.getByText('Week')).toBeInTheDocument();
-    expect(screen.getByText('Month')).toBeInTheDocument();
-    expect(screen.getByText('Year')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('Day')).toBeInTheDocument();
+      expect(screen.getByText('Week')).toBeInTheDocument();
+      expect(screen.getByText('Month')).toBeInTheDocument();
+      expect(screen.getByText('Year')).toBeInTheDocument();
+    });
   });
 
   it('changes time range when button clicked', async () => {
@@ -215,6 +219,11 @@ describe('FeedbackDashboard', () => {
     feedbackService.getFeedbackStats.mockResolvedValue(mockStats);
     
     render(<FeedbackDashboard />);
+    
+    // Wait for component to load
+    await waitFor(() => {
+      expect(screen.getByText('Week')).toBeInTheDocument();
+    });
     
     // Week should be selected by default
     const weekButton = screen.getByText('Week');

@@ -286,6 +286,121 @@ export const useUserProfile = () => {
           }
      }, [user, setUser, showError]);
 
+     /**
+      * Update security settings
+      */
+     const updateSecuritySettings = useCallback(async (securitySettings) => {
+          if (!user?.id) {
+               showError('User not authenticated');
+               return false;
+          }
+
+          try {
+               setIsSaving(true);
+
+               // Store original for rollback
+               setOriginalData({ securitySettings: user.securitySettings });
+
+               // Optimistic update
+               const optimisticUser = {
+                    ...user,
+                    securitySettings: {
+                         ...user.securitySettings,
+                         ...securitySettings,
+                    },
+               };
+
+               setUser(optimisticUser);
+
+               // API call
+               const updatedSettings = await userService.updateSecuritySettings(user.id, securitySettings);
+
+               // Update with server response
+               const serverUser = {
+                    ...user,
+                    securitySettings: updatedSettings,
+               };
+
+               setUser(serverUser);
+               showSuccess('Security settings updated successfully');
+
+               setOriginalData(null);
+               return true;
+          } catch (error) {
+               console.error('Error updating security settings:', error);
+
+               // Rollback on error
+               if (originalData?.securitySettings) {
+                    setUser({
+                         ...user,
+                         securitySettings: originalData.securitySettings,
+                    });
+                    setOriginalData(null);
+               }
+
+               showError(error.message || 'Failed to update security settings');
+               return false;
+          } finally {
+               setIsSaving(false);
+          }
+     }, [user, setUser, showSuccess, showError]);
+
+     /**
+      * Delete profile picture
+      */
+     const deleteProfilePicture = useCallback(async () => {
+          if (!user?.id) {
+               showError('User not authenticated');
+               return false;
+          }
+
+          try {
+               setIsSaving(true);
+
+               // Store original profile picture for rollback
+               setOriginalData({ profilePictureUrl: user.profilePictureUrl });
+
+               // Optimistic update - remove profile picture immediately
+               const optimisticUser = {
+                    ...user,
+                    profilePictureUrl: null,
+               };
+
+               setUser(optimisticUser);
+
+               // Make API call
+               await userService.deleteProfilePicture(user.id);
+
+               // Update with server response
+               const serverUser = {
+                    ...user,
+                    profilePictureUrl: null,
+               };
+
+               setUser(serverUser);
+               showSuccess('Profile picture deleted successfully');
+
+               setOriginalData(null);
+               return true;
+          } catch (error) {
+               console.error('Error deleting profile picture:', error);
+
+               // Rollback on error
+               if (originalData?.profilePictureUrl !== undefined) {
+                    setUser({
+                         ...user,
+                         profilePictureUrl: originalData.profilePictureUrl,
+                    });
+                    setOriginalData(null);
+               }
+
+               showError(error.message || 'Failed to delete profile picture');
+               return false;
+          } finally {
+               setIsSaving(false);
+          }
+     }, [user, setUser, showSuccess, showError]);
+
      return {
           user,
           isLoading,
@@ -293,7 +408,9 @@ export const useUserProfile = () => {
           updateProfile,
           updatePreferences,
           updateNotificationPreferences,
+          updateSecuritySettings,
           uploadProfilePicture,
+          deleteProfilePicture,
           refreshUserData,
      };
 };

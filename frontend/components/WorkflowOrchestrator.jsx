@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 import integrationService from '../services/integrationService';
-import errorHandler from '../utils/errorHandler';
+import errorHandler from '../utils/errorHandler.jsx';
 import { logger } from '../utils/environment';
 
 /**

@@ -51,9 +51,13 @@ class BackgroundJobWorker:
             # Register job handlers from background job service
             self.job_handlers = background_job_service.job_handlers.copy()
             
+            # Register batch processing handler
+            self.job_handlers["batch_processing"] = self._process_batch_job
+            
             # Register background job processor with queue systems
             redis_queue.register_task("background_job", self._process_background_job)
             hybrid_queue.register_task("background_job", self._process_background_job)
+            hybrid_queue.register_task("batch_processing", self._process_batch_job)
             
             logger.info("Background job worker initialized successfully")
             
@@ -242,6 +246,35 @@ class BackgroundJobWorker:
                 await background_job_service.fail_job(job_id, str(e))
             except Exception as save_error:
                 logger.error(f"Failed to save job failure status: {save_error}")
+    
+    async def _process_batch_job(self, job_data: Dict[str, Any]) -> None:
+        """
+        Process a batch processing job.
+        
+        Args:
+            job_data: Dictionary containing batch_id, user_id, and other metadata
+        """
+        from app.services.batch_processing_service import batch_processing_service
+        from app.core.database import SessionLocal
+        
+        batch_id = job_data.get("batch_id")
+        if not batch_id:
+            logger.error("Batch processing job missing batch_id")
+            return
+        
+        logger.info(f"Processing batch job for batch {batch_id}")
+        
+        db = SessionLocal()
+        try:
+            # Process the batch
+            batch = await batch_processing_service.process_batch(batch_id, db)
+            logger.info(f"Successfully processed batch {batch_id} with status {batch.status}")
+            
+        except Exception as e:
+            logger.error(f"Failed to process batch {batch_id}: {e}")
+            raise
+        finally:
+            db.close()
 
 
 # Global worker instance

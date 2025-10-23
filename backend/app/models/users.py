@@ -36,6 +36,9 @@ class User(Base):
     bio = Column(String(1000), nullable=True)
     programming_languages = Column(String(500), nullable=True)  # JSON string of languages
     
+    # API key management
+    gemini_api_key = Column(String(512), nullable=True)  # Encrypted API key
+    
     # OAuth fields
     oauth_provider = Column(String(50), nullable=True)  # 'google', 'github', etc.
     oauth_id = Column(String(255), nullable=True)  # Provider-specific user ID
@@ -53,6 +56,7 @@ class User(Base):
     direct_analyses = relationship("DirectAnalysis", back_populates="user")
     feedback_records = relationship("FeedbackRecord", back_populates="user")
     github_oauth_integrations = relationship("GitHubOAuthIntegration", back_populates="user")
+    file_batches = relationship("FileBatch", back_populates="user")
 
 
 class Token(Base):

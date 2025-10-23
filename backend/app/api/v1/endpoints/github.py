@@ -25,6 +25,8 @@ from app.services.github_service import GitHubService
 from app.services.github_webhook_handler import GitHubWebhookHandler
 from app.services.github_repository_connection_service import GitHubRepositoryConnectionService
 from app.tasks.file_analysis_tasks import analyze_repository_files
+from app.core.hybrid_queue import hybrid_queue
+from app.core.queue_config import QueuePriority
 from app.schemas.github_schemas import (
     GitHubRepositoryResponse,
     PRAnalysisResponse,
@@ -173,9 +175,21 @@ async def complete_oauth(
             GitHubOAuthIntegration.user_id == current_user.id
         ).where(
             GitHubOAuthIntegration.github_user_id == token_data["user"]["id"]
-        )
+        ).order_by(GitHubOAuthIntegration.updated_at.desc())
         result = await db.execute(query)
-        existing_integration = result.scalar_one_or_none()
+        existing_integrations = result.scalars().all()
+        
+        # If multiple integrations exist, keep the most recent and delete others
+        if len(existing_integrations) > 1:
+            logger.warning(f"Found {len(existing_integrations)} duplicate integrations for user {current_user.id}, cleaning up...")
+            existing_integration = existing_integrations[0]
+            # Delete duplicates
+            for dup in existing_integrations[1:]:
+                await db.delete(dup)
+        elif len(existing_integrations) == 1:
+            existing_integration = existing_integrations[0]
+        else:
+            existing_integration = None
         
         if existing_integration:
             # Update existing integration
@@ -206,8 +220,8 @@ async def complete_oauth(
         
         await db.commit()
         
-        # Clean up result
-        del oauth_states[result_id]
+        # Clean up result (use pop to avoid KeyError if already deleted)
+        oauth_states.pop(result_id, None)
         
         return OAuthCallbackResponse(
             success=True,
@@ -532,35 +546,73 @@ async def trigger_full_repository_analysis(
         
         logger.info(f"Created repository analysis record {analysis.id} for repository {repository_id}")
         
+        # Default file patterns - include all supported extensions from settings
+        default_patterns = [
+            # Code files
+            "*.js", "*.jsx", "*.mjs", "*.cjs",
+            "*.ts", "*.tsx",
+            "*.py", "*.pyw", "*.pyi",
+            "*.java", "*.kt", "*.scala", "*.groovy",
+            "*.c", "*.cpp", "*.cc", "*.cxx", "*.h", "*.hpp", "*.hxx",
+            "*.cs", "*.vb", "*.fs",
+            "*.html", "*.htm", "*.xhtml",
+            "*.css", "*.scss", "*.sass", "*.less",
+            "*.xml", "*.xsl", "*.xsd",
+            "*.json", "*.jsonc", "*.json5",
+            "*.php", "*.phtml",
+            "*.rb", "*.rbw",
+            "*.go",
+            "*.rs",
+            "*.swift",
+            "*.r",
+            "*.sql",
+            "*.sh", "*.bash", "*.zsh", "*.fish",
+            "*.ps1", "*.psm1",
+            "*.yaml", "*.yml",
+            "*.toml",
+            "*.ini", "*.cfg", "*.conf",
+            "*.md", "*.markdown",
+            "*.txt", "*.text", "*.log",
+            "Dockerfile", "Makefile"
+        ]
+        
         # Queue the background analysis task
         try:
-            # Queue the task asynchronously
-            task = analyze_repository_files.delay(
-                repository_id=repository_id,
-                file_patterns=file_patterns or ["*.py", "*.js", "*.ts", "*.jsx", "*.tsx"],
-                analysis_type="comprehensive",
-                user_id=str(current_user.id)
+            # Queue the task using hybrid_queue
+            task_id = await hybrid_queue.enqueue_task(
+                "analyze_repository_files",
+                args=[repository_id],
+                kwargs={
+                    "file_patterns": file_patterns or default_patterns,
+                    "analysis_type": "comprehensive",
+                    "user_id": str(current_user.id)
+                },
+                priority=QueuePriority.MEDIUM
             )
             
             # Update analysis with task ID
+            patterns = file_patterns or default_patterns
             analysis.analysis_results = {
-                "task_id": str(task.id) if hasattr(task, 'id') else "queued",
+                "task_id": task_id,
                 "branch": branch,
-                "file_patterns": file_patterns,
+                "file_patterns": [str(p) for p in patterns] if patterns else [],
                 "started_at": datetime.datetime.utcnow().isoformat()
             }
             analysis.started_at = datetime.datetime.utcnow()
             await db.commit()
             
-            logger.info(f"Queued repository analysis task for repository {repository_id}")
+            logger.info(f"Queued repository analysis task {task_id} for repository {repository_id}")
             
         except Exception as queue_error:
-            logger.warning(f"Failed to queue background task: {queue_error}")
+            logger.error(f"Failed to queue background task: {queue_error}")
+            import traceback
+            traceback.print_exc()
             # Update status to show it's queued but task failed
             analysis.status = AnalysisStatus.PENDING
             analysis.analysis_results = {
                 "status": "queued_manually",
                 "branch": branch,
+                "error": str(queue_error),
                 "note": "Analysis will be processed when background workers are available"
             }
             await db.commit()
@@ -573,7 +625,7 @@ async def trigger_full_repository_analysis(
             "repository_name": repository.repo_name,
             "branch": branch,
             "status": "queued",
-            "file_patterns": file_patterns or ["*.py", "*.js", "*.ts", "*.jsx", "*.tsx"],
+            "file_patterns": file_patterns or default_patterns,
             "created_at": analysis.created_at.isoformat()
         }
         
@@ -996,11 +1048,54 @@ async def list_repository_issues(
                 detail="Repository not found or access denied"
             )
         
-        # For now, return empty list
-        # TODO: Implement actual issue listing from GitHub API
+        # Get all analyses for this repository
+        from app.models.github_integration import PRAnalysis
+        analyses_query = select(PRAnalysis).where(
+            PRAnalysis.repository_id == repository_id
+        ).order_by(PRAnalysis.created_at.desc())
+        
+        analyses_result = await db.execute(analyses_query)
+        analyses = analyses_result.scalars().all()
+        
+        # Collect all issues from all analyses
+        all_issues = []
+        for analysis in analyses:
+            if analysis.analysis_results and isinstance(analysis.analysis_results, dict):
+                issues = analysis.analysis_results.get('issues', [])
+                for idx, issue in enumerate(issues):
+                    issue_id = issue.get('id', f"{analysis.id}-{idx}")
+                    all_issues.append({
+                        "id": issue_id,
+                        "file_path": issue.get('file_path', 'Unknown'),
+                        "line_number": issue.get('line_number', 0),
+                        "severity": issue.get('severity', 'info'),
+                        "message": issue.get('comment', issue.get('message', 'No description')),
+                        "status": "open",  # Repository issues are always open
+                        "analysis_id": str(analysis.id),
+                        "analysis_status": analysis.status.value if hasattr(analysis.status, 'value') else str(analysis.status),
+                        "created_at": analysis.created_at.isoformat() if analysis.created_at else None
+                    })
+        
+        # Filter by status if provided
+        if status:
+            all_issues = [i for i in all_issues if i.get('status', 'open') == status]
+        
+        # Filter by search if provided
+        if search:
+            search_lower = search.lower()
+            all_issues = [i for i in all_issues if 
+                         search_lower in i.get('message', '').lower() or 
+                         search_lower in i.get('file_path', '').lower()]
+        
+        # Pagination
+        total = len(all_issues)
+        start = (page - 1) * limit
+        end = start + limit
+        paginated_issues = all_issues[start:end]
+        
         return {
-            "issues": [],
-            "total": 0,
+            "issues": paginated_issues,
+            "total": total,
             "page": page,
             "per_page": limit
         }

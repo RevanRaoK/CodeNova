@@ -1,0 +1,55 @@
+╔════════════════════════════════════════════════════════════════╗
+║                  ISSUES TABLE - QUICK FIX                      ║
+╚════════════════════════════════════════════════════════════════╝
+
+PROBLEM:
+  Your issues table has BOTH old and new schemas merged.
+  Code tries to use analysis_id, but DB requires pr_analysis_id.
+  Result: IntegrityError when creating issues.
+
+SOLUTION (3 commands):
+  
+  cd backend
+  
+  python reset_issues_table.py
+  
+  python verify_database_schema.py
+
+DONE! Test your API.
+
+────────────────────────────────────────────────────────────────
+
+WHAT HAPPENED:
+  • Windows: Fresh DB with old schema → worked
+  • Linux: Existing DB + model update → columns added, not replaced
+  • Result: Both schemas exist, causing conflicts
+
+WHY THIS FIX WORKS:
+  • Drops the issues table completely
+  • Recreates it from your current model
+  • Clean schema, no conflicts
+  • Takes 2 seconds
+
+WILL I LOSE DATA?
+  • Yes, but the data wasn't being saved anyway (that's the bug)
+  • After fix, new data will save correctly
+
+────────────────────────────────────────────────────────────────
+
+ALTERNATIVE (if you want more control):
+  
+  python fix_issues_table_clean.py
+
+Both achieve the same result. reset_issues_table.py is simpler.
+
+────────────────────────────────────────────────────────────────
+
+NEED MORE INFO?
+  
+  python RUN_ME_TO_FIX.py          ← Diagnose the problem
+  python check_existing_data.py    ← See what data exists
+  cat README_FIX_ISSUES_TABLE.md   ← Full documentation
+
+╔════════════════════════════════════════════════════════════════╗
+║  TL;DR: Run "python reset_issues_table.py" and you're done    ║
+╚════════════════════════════════════════════════════════════════╝

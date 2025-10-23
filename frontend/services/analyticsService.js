@@ -326,6 +326,106 @@ class AnalyticsService {
   }
 
   /**
+   * Get issue trends over time
+   * @param {Object} [options] - Query options
+   * @param {string} [options.timeframe] - Time frame for data ('7d', '30d', '90d')
+   * @param {string} [options.userId] - Filter by specific user ID
+   * @returns {Promise<Object>} Issue trends data
+   */
+  async getIssueTrends(options = {}) {
+    try {
+      const params = new URLSearchParams();
+      if (options.timeframe) params.append('timeframe', options.timeframe);
+      if (options.userId) params.append('user_id', options.userId);
+
+      const response = await httpClient.get(`/analytics/issue-trends?${params}`);
+      return this.processIssueTrendsResponse(response.data);
+    } catch (error) {
+      console.error('Failed to fetch issue trends:', error);
+      throw this.handleAnalyticsError(error);
+    }
+  }
+
+  /**
+   * Get criticality distribution
+   * @param {Object} [options] - Query options
+   * @param {string} [options.timeframe] - Time frame for data ('7d', '30d', '90d')
+   * @param {string} [options.userId] - Filter by specific user ID
+   * @returns {Promise<Object>} Criticality distribution data
+   */
+  async getCriticalityDistribution(options = {}) {
+    try {
+      const params = new URLSearchParams();
+      if (options.timeframe) params.append('timeframe', options.timeframe);
+      if (options.userId) params.append('user_id', options.userId);
+
+      const response = await httpClient.get(`/analytics/criticality-distribution?${params}`);
+      return this.processCriticalityDistributionResponse(response.data);
+    } catch (error) {
+      console.error('Failed to fetch criticality distribution:', error);
+      throw this.handleAnalyticsError(error);
+    }
+  }
+
+  /**
+   * Process issue trends response
+   * @param {Object} data - Raw API response
+   * @returns {Object} Processed issue trends data
+   */
+  processIssueTrendsResponse(data) {
+    return {
+      timeframe: data.timeframe || '30d',
+      data_points: (data.data_points || []).map(point => ({
+        date: point.date,
+        errors: point.errors || 0,
+        security_issues: point.security_issues || 0,
+        warnings: point.warnings || 0,
+        total: point.total || 0
+      })),
+      summary: {
+        total_errors: data.summary?.total_errors || 0,
+        total_security: data.summary?.total_security_issues || 0,
+        total_warnings: data.summary?.total_warnings || 0,
+        total_issues: data.summary?.total_issues || 0,
+        trend: data.summary?.trend || 'stable'
+      },
+      generated_at: data.generated_at
+    };
+  }
+
+  /**
+   * Process criticality distribution response
+   * @param {Object} data - Raw API response
+   * @returns {Object} Processed criticality distribution data
+   */
+  processCriticalityDistributionResponse(data) {
+    return {
+      timeframe: data.timeframe || '30d',
+      distribution: {
+        severe: {
+          count: data.distribution?.severe?.count || 0,
+          percentage: data.distribution?.severe?.percentage || 0
+        },
+        high: {
+          count: data.distribution?.high?.count || 0,
+          percentage: data.distribution?.high?.percentage || 0
+        },
+        medium: {
+          count: data.distribution?.medium?.count || 0,
+          percentage: data.distribution?.medium?.percentage || 0
+        },
+        low: {
+          count: data.distribution?.low?.count || 0,
+          percentage: data.distribution?.low?.percentage || 0
+        }
+      },
+      total_issues: data.total_issues || 0,
+      severity_breakdown: data.severity_breakdown || {},
+      generated_at: data.generated_at
+    };
+  }
+
+  /**
    * Get chart color palette
    * @returns {Object} Color palette for charts
    */

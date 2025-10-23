@@ -1,10 +1,11 @@
 # app/api/v1/endpoints/files.py
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, BackgroundTasks, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 import tempfile
 import os
+import logging
 from pathlib import Path
 from datetime import datetime
 import uuid
@@ -12,8 +13,13 @@ import uuid
 from app.core.database import get_db
 from app.api.v1.endpoints.auth import get_current_active_user
 from app.models.users import User
+from app.models.file_batch import FileBatch, BatchFile
 from app.services.ai_service import aiservice
+from app.services.file_upload_service import FileUploadService
+from app.workers.batch_analysis_worker import process_batch_task
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -419,6 +425,195 @@ async def upload_file(
             }
         )
 
+@router.post("/upload-unified", response_model=dict)
+async def upload_files_unified(
+    files: list[UploadFile] = File(..., description="Code files to upload (single or multiple)"),
+    auto_analyze: bool = True,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Unified upload endpoint that handles both single and multiple files.
+    
+    For single files: Returns direct analysis results
+    For multiple files: Uses batch processing with progress tracking
+    
+    Requirements covered: 9.3, 9.4, 9.5
+    """
+    from app.services.batch_processing_service import batch_processing_service
+    
+    try:
+        logger.info(f"Processing unified upload with {len(files)} files for user {current_user.id}")
+        
+        if len(files) == 1:
+            # Single file - use direct processing for immediate results
+            file = files[0]
+            
+            # Validate file
+            if not file.filename:
+                raise HTTPException(status_code=400, detail="Filename is required")
+            
+            # Read and validate content
+            content_bytes = await file.read()
+            if len(content_bytes) == 0:
+                raise HTTPException(status_code=400, detail="File is empty")
+            
+            # Decode content
+            try:
+                content = content_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                raise HTTPException(status_code=400, detail="File must be valid UTF-8 text")
+            
+            # Get AI analysis
+            from app.services.ai_service import AIService
+            ai_service = AIService()
+            analysis_result = ai_service.analyze_code(
+                code=content,
+                language=detect_language_from_filename(file.filename),
+                filename=file.filename
+            )
+            
+            return {
+                "type": "single",
+                "filename": file.filename,
+                "file_size_bytes": len(content_bytes),
+                "lines_count": len(content.split('\n')),
+                "analysis": analysis_result,
+                "message": f"Successfully analyzed {file.filename}"
+            }
+        
+        else:
+            # Multiple files - use batch processing
+            batch = await batch_processing_service.create_batch(
+                files=files,
+                user=current_user,
+                db=db,
+                auto_analyze=auto_analyze
+            )
+            logger.info(f"Batch created and processed successfully: {batch.id}")
+            
+            return {
+                "type": "batch",
+                "batch_id": batch.id,
+                "status": batch.status,
+                "total_files": batch.total_files,
+                "processed_files": batch.processed_files,
+                "successful_files": batch.successful_files,
+                "failed_files": batch.failed_files,
+                "progress_percentage": batch.progress_percentage,
+                "is_complete": batch.is_complete,
+                "estimated_completion_time": batch.estimated_completion_time,
+                "completed_at": batch.completed_at,
+                "message": f"Successfully created batch with {batch.total_files} files"
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unified upload failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@router.post("/upload-multiple-batch", response_model=dict)
+async def upload_multiple_files_batch(
+    files: list[UploadFile] = File(..., description="Multiple code files to upload for batch processing"),
+    auto_analyze: bool = True,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload multiple files for batch processing with analysis.
+    
+    This endpoint creates a batch processing job that handles multiple files
+    concurrently and provides progress tracking and combined results.
+    
+    Requirements covered: 9.3, 9.4, 9.5
+    """
+    from app.services.batch_processing_service import batch_processing_service
+    
+    try:
+        logger.info(f"Processing batch upload with {len(files)} files for user {current_user.id}")
+        
+        # Create batch with files
+        batch = await batch_processing_service.create_batch(
+            files=files,
+            user=current_user,
+            db=db,
+            auto_analyze=auto_analyze
+        )
+        logger.info(f"Batch created and processed successfully: {batch.id}")
+        
+        return {
+            "batch_id": batch.id,
+            "status": batch.status,
+            "total_files": batch.total_files,
+            "processed_files": batch.processed_files,
+            "successful_files": batch.successful_files,
+            "failed_files": batch.failed_files,
+            "progress_percentage": batch.progress_percentage,
+            "is_complete": batch.is_complete,
+            "estimated_completion_time": batch.estimated_completion_time,
+            "completed_at": batch.completed_at,
+            "message": f"Successfully created batch with {batch.total_files} files"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Batch upload failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Batch upload failed: {str(e)}")
+
+
+@router.get("/batch/{batch_id}/status")
+async def get_batch_status(
+    batch_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the current status and progress of a batch processing job.
+    
+    Requirements covered: 9.6, 9.7
+    """
+    from app.services.batch_processing_service import batch_processing_service
+    
+    try:
+        print(f"DEBUG: Getting batch status for {batch_id}")
+        status = await batch_processing_service.get_batch_status(batch_id, db)
+        print(f"DEBUG: Batch status: {status}")
+        return status
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get batch status: {e}")
+        print(f"DEBUG: Error getting batch status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get batch status: {str(e)}")
+
+
+
+
+@router.get("/batch/{batch_id}/results")
+async def get_batch_results(
+    batch_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the detailed analysis results for a completed batch.
+    
+    Requirements covered: 9.6, 9.7
+    """
+    from app.services.batch_processing_service import batch_processing_service
+    
+    try:
+        results = await batch_processing_service.get_batch_results(batch_id, db)
+        return results
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get batch results: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get batch results: {str(e)}")
+
+
 @router.post("/upload-multiple", response_model=list[FileUploadResponse])
 async def upload_multiple_files(
     files: list[UploadFile] = File(..., description="Multiple code files to upload"),
@@ -590,6 +785,178 @@ async def upload_multiple_files(
     return results
 
 
+@router.get("/analysis/{file_id}")
+async def get_file_analysis(
+    file_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get analysis details for a specific file.
+    
+    This endpoint returns the detailed analysis results for a file,
+    including issues, metrics, and suggestions.
+    """
+    try:
+        from app.models.file_batch import BatchFile, FileBatch
+        
+        print(f"DEBUG: Getting analysis for file_id: {file_id}")
+        
+        # Get the file with user verification
+        batch_file = db.query(BatchFile).join(FileBatch).filter(
+            BatchFile.id == file_id,
+            FileBatch.user_id == current_user.id
+        ).first()
+        
+        if not batch_file:
+            print(f"DEBUG: File not found for file_id: {file_id}, user_id: {current_user.id}")
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        print(f"DEBUG: Found file: {batch_file.filename}, status: {batch_file.status}")
+        
+        # Return analysis details
+        return {
+            "id": batch_file.id,
+            "filename": batch_file.filename,
+            "language": batch_file.language,
+            "status": batch_file.status,
+            "created_at": batch_file.created_at.isoformat() if batch_file.created_at else None,
+            "completed_at": batch_file.completed_at.isoformat() if batch_file.completed_at else None,
+            "processing_time_seconds": batch_file.processing_time_seconds,
+            "file_size_bytes": batch_file.file_size_bytes,
+            "lines_count": batch_file.lines_count,
+            "issues_count": batch_file.issues_count,
+            "errors_count": batch_file.errors_count,
+            "warnings_count": batch_file.warnings_count,
+            "suggestions_count": batch_file.suggestions_count,
+            "analysis_summary": batch_file.analysis_summary,
+            "issues": batch_file.analysis_results or [],
+            "metrics": batch_file.analysis_metrics or {},
+            "error_message": batch_file.error_message,
+            "file_content": batch_file.file_content  # Include for code display
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get file analysis: {e}")
+        print(f"DEBUG: Error getting file analysis: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get file analysis: {str(e)}")
+
+@router.get("/debug/batches")
+async def get_user_batches_debug(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Debug endpoint to see all user batches"""
+    try:
+        from app.models.file_batch import FileBatch
+        
+        batches = db.query(FileBatch).filter(FileBatch.user_id == current_user.id).all()
+        
+        result = []
+        for batch in batches:
+            batch_data = {
+                "id": batch.id,
+                "status": batch.status,
+                "total_files": batch.total_files,
+                "processed_files": batch.processed_files,
+                "successful_files": batch.successful_files,
+                "failed_files": batch.failed_files,
+                "created_at": batch.created_at.isoformat() if batch.created_at else None,
+                "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
+                "files": []
+            }
+            
+            for bf in batch.batch_files:
+                file_data = {
+                    "filename": bf.filename,
+                    "status": bf.status,
+                    "language": bf.language,
+                    "issues_count": bf.issues_count,
+                    "errors_count": bf.errors_count,
+                    "warnings_count": bf.warnings_count
+                }
+                batch_data["files"].append(file_data)
+            
+            result.append(batch_data)
+        
+        return {"batches": result, "total": len(result)}
+        
+    except Exception as e:
+        print(f"DEBUG: Error getting batches: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/")
+async def get_user_files(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    language: Optional[str] = Query(None, description="Filter by programming language"),
+    status: Optional[str] = Query(None, description="Filter by analysis status"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get user's uploaded files with pagination and filtering.
+    
+    This endpoint returns the user's file upload history with analysis status,
+    supporting pagination and filtering by language and status.
+    """
+    try:
+        from app.models.file_batch import FileBatch, BatchFile
+        from sqlalchemy import and_, desc
+        
+        # Build query for user's files
+        query = db.query(BatchFile).join(FileBatch).filter(
+            FileBatch.user_id == current_user.id
+        )
+        
+        # Apply filters
+        if language:
+            query = query.filter(BatchFile.language == language)
+        if status:
+            query = query.filter(BatchFile.status == status)
+        
+        # Get total count
+        total_count = query.count()
+        
+        # Apply pagination and ordering
+        files = query.order_by(desc(BatchFile.created_at)).offset(
+            (page - 1) * page_size
+        ).limit(page_size).all()
+        
+        # Format response
+        files_data = []
+        for file in files:
+            files_data.append({
+                "id": file.id,
+                "filename": file.filename,
+                "original_filename": file.original_filename,
+                "language": file.language,
+                "status": file.status,
+                "created_at": file.created_at.isoformat() if file.created_at else None,
+                "analyzed_at": file.completed_at.isoformat() if file.completed_at else None,
+                "file_size_bytes": file.file_size_bytes,
+                "lines_count": file.lines_count,
+                "issues_count": file.issues_count or 0,
+                "errors_count": file.errors_count or 0,
+                "warnings_count": file.warnings_count or 0,
+                "processing_time": file.processing_time_seconds
+            })
+        
+        return {
+            "files": files_data,
+            "total": total_count,
+            "page": page,
+            "page_size": page_size,
+            "has_next": (page * page_size) < total_count,
+            "has_previous": page > 1
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get user files: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get user files: {str(e)}")
+
 @router.post("/code-review")
 async def code_review_files(
     files: list[UploadFile] = File(..., description="Code files to review"),
@@ -719,3 +1086,325 @@ def get_supported_extensions():
         "max_lines": MAX_LINES,
         "supported_encodings": ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252']
     }
+
+
+# ============================================================================
+# New Batch Upload Endpoints for Multi-File Analysis
+# Requirements covered: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 13.1, 13.2
+# ============================================================================
+
+class BatchUploadResponse(BaseModel):
+    """Response model for batch file upload."""
+    batch_id: str = Field(description="Unique identifier for the batch")
+    total_files: int = Field(description="Total number of files in the batch")
+    successful_uploads: int = Field(description="Number of successfully uploaded files")
+    failed_uploads: int = Field(description="Number of failed uploads")
+    status: str = Field(description="Batch status")
+    files: List[dict] = Field(description="List of uploaded files with their status")
+    created_at: datetime = Field(description="Batch creation timestamp")
+    validation_errors: Optional[List[dict]] = Field(default=None, description="Validation errors if any")
+
+
+class BatchStatusResponse(BaseModel):
+    """Response model for batch status."""
+    batch_id: str
+    status: str
+    total_files: int
+    processed_files: int
+    successful_files: int
+    failed_files: int
+    progress_percentage: float
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    processing_time_seconds: Optional[float] = None
+    files: List[dict] = Field(description="List of files with their status")
+
+
+class BatchFileInfo(BaseModel):
+    """Information about a file in a batch."""
+    file_id: str
+    filename: str
+    status: str
+    language: Optional[str] = None
+    size_bytes: int
+    analysis_id: Optional[str] = None
+    issues_count: Optional[int] = None
+    errors_count: Optional[int] = None
+    warnings_count: Optional[int] = None
+    error_message: Optional[str] = None
+
+
+@router.post("/upload-batch", response_model=BatchUploadResponse)
+async def upload_files_batch(
+    files: List[UploadFile] = File(..., description="Multiple code files to upload for batch analysis"),
+    language: Optional[str] = Form(None, description="Programming language (auto-detect if not provided)"),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload multiple files as a batch for background analysis.
+    
+    This endpoint accepts multiple files, validates them, stores them,
+    and queues them for background analysis. The analysis results can
+    be retrieved using the batch status endpoint.
+    
+    Requirements covered: 1.1, 1.2, 1.3, 1.4
+    """
+    try:
+        logger.info(f"User {current_user.id} uploading batch of {len(files)} files")
+        
+        # Create file upload service
+        upload_service = FileUploadService(db)
+        
+        # Upload files and create batch
+        batch = await upload_service.upload_files_batch(
+            files=files,
+            user_id=current_user.id,
+            language=language
+        )
+        
+        # Get uploaded files
+        batch_files = upload_service.get_batch_files(batch.id, current_user.id)
+        
+        # Schedule background analysis
+        background_tasks.add_task(process_batch_task, batch.id)
+        
+        logger.info(f"Batch {batch.id} created with {len(batch_files)} files, analysis scheduled")
+        
+        # Prepare response
+        files_info = []
+        for bf in batch_files:
+            files_info.append({
+                "file_id": bf.id,
+                "filename": bf.filename,
+                "status": bf.status,
+                "language": bf.language,
+                "size_bytes": bf.file_size_bytes,
+                "size_kb": bf.file_size_kb
+            })
+        
+        # Extract validation errors from processing log
+        validation_errors = None
+        if batch.processing_log:
+            for log_entry in batch.processing_log:
+                if log_entry.get('event') == 'validation_errors':
+                    validation_errors = log_entry.get('details', [])
+        
+        return BatchUploadResponse(
+            batch_id=batch.id,
+            total_files=batch.total_files,
+            successful_uploads=len(batch_files),
+            failed_uploads=len(files) - len(batch_files),
+            status=batch.status,
+            files=files_info,
+            created_at=batch.created_at,
+            validation_errors=validation_errors
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading batch: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Batch upload failed: {str(e)}"
+        )
+
+
+@router.get("/batch/{batch_id}", response_model=BatchStatusResponse)
+async def get_batch_status_detailed(
+    batch_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get detailed status of a file batch.
+    
+    Returns the current status of the batch including progress,
+    file statuses, and analysis results.
+    
+    Requirements covered: 1.5, 13.1, 13.3
+    """
+    try:
+        upload_service = FileUploadService(db)
+        
+        # Get batch
+        batch = upload_service.get_batch_status(batch_id, current_user.id)
+        
+        if not batch:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Batch {batch_id} not found or access denied"
+            )
+        
+        # Get batch files
+        batch_files = upload_service.get_batch_files(batch_id, current_user.id)
+        
+        # Prepare files info
+        files_info = []
+        for bf in batch_files:
+            files_info.append({
+                "file_id": bf.id,
+                "filename": bf.filename,
+                "status": bf.status,
+                "language": bf.language,
+                "size_bytes": bf.file_size_bytes,
+                "analysis_id": bf.analysis_id,
+                "issues_count": bf.issues_count,
+                "errors_count": bf.errors_count,
+                "warnings_count": bf.warnings_count,
+                "error_message": bf.error_message,
+                "processing_time_seconds": bf.processing_time_seconds
+            })
+        
+        return BatchStatusResponse(
+            batch_id=batch.id,
+            status=batch.status,
+            total_files=batch.total_files,
+            processed_files=batch.processed_files,
+            successful_files=batch.successful_files,
+            failed_files=batch.failed_files,
+            progress_percentage=batch.progress_percentage,
+            created_at=batch.created_at,
+            started_at=batch.started_at,
+            completed_at=batch.completed_at,
+            processing_time_seconds=batch.processing_time_seconds,
+            files=files_info
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting batch status: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get batch status: {str(e)}"
+        )
+
+
+@router.get("/batches", response_model=List[dict])
+async def get_user_batches(
+    skip: int = Query(default=0, ge=0, description="Number of records to skip"),
+    limit: int = Query(default=20, ge=1, le=100, description="Maximum number of records to return"),
+    status: Optional[str] = Query(default=None, description="Filter by status"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all batches for the current user.
+    
+    Returns a paginated list of file batches with their status.
+    
+    Requirements covered: 1.5, 2.3
+    """
+    try:
+        upload_service = FileUploadService(db)
+        
+        # Get user batches
+        batches = upload_service.get_user_batches(
+            user_id=current_user.id,
+            skip=skip,
+            limit=limit,
+            status=status
+        )
+        
+        # Prepare response
+        batches_info = []
+        for batch in batches:
+            batches_info.append({
+                "batch_id": batch.id,
+                "total_files": batch.total_files,
+                "processed_files": batch.processed_files,
+                "successful_files": batch.successful_files,
+                "failed_files": batch.failed_files,
+                "status": batch.status,
+                "progress_percentage": batch.progress_percentage,
+                "created_at": batch.created_at.isoformat(),
+                "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
+                "processing_time_seconds": batch.processing_time_seconds
+            })
+        
+        return batches_info
+        
+    except Exception as e:
+        logger.error(f"Error getting user batches: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get batches: {str(e)}"
+        )
+
+
+@router.get("/batch/{batch_id}/files/{file_id}", response_model=dict)
+async def get_batch_file_details(
+    batch_id: str,
+    file_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get detailed information about a specific file in a batch.
+    
+    Returns file details including analysis results if available.
+    
+    Requirements covered: 1.5, 2.3
+    """
+    try:
+        # Verify batch belongs to user
+        upload_service = FileUploadService(db)
+        batch = upload_service.get_batch_status(batch_id, current_user.id)
+        
+        if not batch:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Batch {batch_id} not found or access denied"
+            )
+        
+        # Get file
+        batch_file = db.query(BatchFile).filter(
+            BatchFile.id == file_id,
+            BatchFile.batch_id == batch_id
+        ).first()
+        
+        if not batch_file:
+            raise HTTPException(
+                status_code=404,
+                detail=f"File {file_id} not found in batch {batch_id}"
+            )
+        
+        # Prepare response
+        file_info = {
+            "file_id": batch_file.id,
+            "batch_id": batch_file.batch_id,
+            "filename": batch_file.filename,
+            "original_filename": batch_file.original_filename,
+            "file_size_bytes": batch_file.file_size_bytes,
+            "language": batch_file.language,
+            "status": batch_file.status,
+            "analysis_id": batch_file.analysis_id,
+            "issues_count": batch_file.issues_count,
+            "errors_count": batch_file.errors_count,
+            "warnings_count": batch_file.warnings_count,
+            "analysis_summary": batch_file.analysis_summary,
+            "analysis_results": batch_file.analysis_results,
+            "error_message": batch_file.error_message,
+            "error_code": batch_file.error_code,
+            "created_at": batch_file.created_at.isoformat(),
+            "started_processing_at": batch_file.started_processing_at.isoformat() if batch_file.started_processing_at else None,
+            "completed_at": batch_file.completed_at.isoformat() if batch_file.completed_at else None,
+            "processing_time_seconds": batch_file.processing_time_seconds
+        }
+        
+        return file_info
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting batch file details: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get file details: {str(e)}"
+        )

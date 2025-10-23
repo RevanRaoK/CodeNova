@@ -205,7 +205,7 @@ export function Homepage() {
                               {/* Stats */}
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto">
                                    <div className="text-center">
-                                        <div className="text-3xl font-bold text-white mb-2">10,000+</div>
+                                        <div className="text-3xl font-bold text-white mb-2">500+</div>
                                         <div className="text-indigo-200">Code Reviews Completed</div>
                                    </div>
                                    <div className="text-center">
@@ -533,8 +533,8 @@ export function Homepage() {
                                                   <MailIcon className="h-6 w-6 text-indigo-600 mr-4 mt-1" />
                                                   <div>
                                                        <h4 className="font-semibold text-gray-900">Email</h4>
-                                                       <p className="text-gray-600">hello@codenova.com</p>
-                                                       <p className="text-gray-600">support@codenova.com</p>
+                                                       <p className="text-gray-600">kokkiralarevan2005@gmail.com</p>
+                                                       <p className="text-gray-600">rachapranavanadh@gmail.com</p>
                                                   </div>
                                              </div>
 
@@ -542,7 +542,7 @@ export function Homepage() {
                                                   <PhoneIcon className="h-6 w-6 text-indigo-600 mr-4 mt-1" />
                                                   <div>
                                                        <h4 className="font-semibold text-gray-900">Phone</h4>
-                                                       <p className="text-gray-600">+1 (555) 123-4567</p>
+                                                       <p className="text-gray-600">+91 77020 27178</p>
                                                        <p className="text-sm text-gray-500">Mon-Fri 9AM-6PM PST</p>
                                                   </div>
                                              </div>
@@ -552,9 +552,9 @@ export function Homepage() {
                                                   <div>
                                                        <h4 className="font-semibold text-gray-900">Office</h4>
                                                        <p className="text-gray-600">
-                                                            123 Innovation Drive<br />
-                                                            San Francisco, CA 94105<br />
-                                                            United States
+                                                            Keshav Memorial Institute of Technology,
+                                                            <br />
+                                                            Narayanguda, Hyderabad-500029, Telanagana, India.
                                                        </p>
                                                   </div>
                                              </div>
@@ -651,12 +651,6 @@ export function Homepage() {
                                         <li><a href="#" className="text-gray-300 hover:text-white transition-colors">Terms of Service</a></li>
                                    </ul>
                               </div>
-                         </div>
-
-                         <div className="border-t border-gray-800 mt-12 pt-8 text-center">
-                              <p className="text-gray-400">
-                                   © 2024 CodeNova. All rights reserved.
-                              </p>
                          </div>
                     </div>
                </footer>

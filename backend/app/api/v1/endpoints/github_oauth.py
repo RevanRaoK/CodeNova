@@ -320,6 +320,39 @@ async def revoke_github_oauth(
         raise HTTPException(status_code=500, detail="Failed to revoke integration")
 
 
+@router.delete("")
+async def disconnect_github_oauth(
+    current_user: User = Depends(get_current_user_async),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Disconnect GitHub OAuth integration (alias for revoke).
+    Frontend calls DELETE /api/v1/github/oauth
+    
+    Args:
+        current_user: Current authenticated user
+        db: Database session
+        
+    Returns:
+        Success message
+    """
+    try:
+        oauth_service = GitHubOAuthService()
+        revoked = await oauth_service.revoke_integration(db=db, user_id=current_user.id)
+        
+        if revoked:
+            logger.info(f"GitHub OAuth disconnected for user {current_user.id}")
+            return {"message": "GitHub integration disconnected successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="No active GitHub integration found")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to disconnect GitHub OAuth: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to disconnect integration")
+
+
 @router.post("/validate-token")
 async def validate_github_token(
     current_user: User = Depends(get_current_user_async),

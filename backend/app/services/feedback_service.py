@@ -69,29 +69,39 @@ class FeedbackService:
         
         if existing_feedback:
             # Update existing feedback instead of creating duplicate
-            return self._update_existing_feedback(existing_feedback, feedback_request)
+            feedback_record = self._update_existing_feedback(existing_feedback, feedback_request)
+        else:
+            # Convert feedback type to numeric value
+            feedback_value = self._get_feedback_value(feedback_request.feedback_type)
+            
+            # Create new feedback record
+            feedback_record = FeedbackRecord(
+                issue_id=feedback_request.issue_id,
+                user_id=user_id,
+                feedback_type=feedback_request.feedback_type.value,
+                feedback_value=feedback_value,
+                feedback_comment=feedback_request.feedback_comment,
+                modified_suggestion=feedback_request.modified_suggestion,
+                user_experience_level=feedback_request.user_experience_level.value if feedback_request.user_experience_level else None,
+                code_review_context=feedback_request.code_review_context.value if feedback_request.code_review_context else None,
+                context_data=feedback_request.context_data or {},
+                is_validated=False,
+                validation_score=None
+            )
+            
+            self.db.add(feedback_record)
+            self.db.commit()
+            self.db.refresh(feedback_record)
         
-        # Convert feedback type to numeric value
-        feedback_value = self._get_feedback_value(feedback_request.feedback_type)
-        
-        # Create new feedback record
-        feedback_record = FeedbackRecord(
-            issue_id=feedback_request.issue_id,
+        # Trigger learning pipeline integration
+        self._trigger_learning_pipeline_update(
             user_id=user_id,
+            issue_id=feedback_request.issue_id,
             feedback_type=feedback_request.feedback_type.value,
-            feedback_value=feedback_value,
+            feedback_value=self._get_feedback_value(feedback_request.feedback_type),
             feedback_comment=feedback_request.feedback_comment,
-            modified_suggestion=feedback_request.modified_suggestion,
-            user_experience_level=feedback_request.user_experience_level.value if feedback_request.user_experience_level else None,
-            code_review_context=feedback_request.code_review_context.value if feedback_request.code_review_context else None,
-            context_data=feedback_request.context_data or {},
-            is_validated=False,
-            validation_score=None
+            modified_suggestion=feedback_request.modified_suggestion
         )
-        
-        self.db.add(feedback_record)
-        self.db.commit()
-        self.db.refresh(feedback_record)
         
         return feedback_record
     
@@ -469,3 +479,281 @@ class FeedbackService:
             'period_days': days,
             'pattern_type': pattern_type
         }
+    
+    def get_feedback_statistics_with_timeframe(
+        self,
+        user_id: int,
+        timeframe: str = "week"
+    ) -> Dict[str, Any]:
+        """
+        Get comprehensive feedback statistics with timeframe parameter.
+        
+        Args:
+            user_id: User ID to get statistics for
+            timeframe: Time period (week, month, quarter, year)
+            
+        Returns:
+            Dict containing feedback statistics, trends, and model performance
+            
+        Requirements: 2.2, 2.3, 2.4, 2.5
+        """
+        # Calculate date range based on timeframe
+        timeframe_days = {
+            "week": 7,
+            "month": 30,
+            "quarter": 90,
+            "year": 365
+        }
+        
+        days = timeframe_days.get(timeframe, 7)
+        start_date = datetime.utcnow() - timedelta(days=days)
+        
+        # Build query for user's feedback in timeframe
+        query = self.db.query(FeedbackRecord).filter(
+            and_(
+                FeedbackRecord.user_id == user_id,
+                FeedbackRecord.created_at >= start_date
+            )
+        ).join(Issue)
+        
+        feedback_records = query.all()
+        total_count = len(feedback_records)
+        
+        if total_count == 0:
+            return self._empty_statistics_response(timeframe)
+        
+        # 1. Aggregation by feedback type (accept/reject/modify)
+        feedback_by_type = self._aggregate_feedback_by_type(feedback_records)
+        
+        # 2. Calculate feedback trends over time periods
+        feedback_trends = self._calculate_feedback_trends_over_time(feedback_records, days)
+        
+        # 3. Calculate model performance metrics based on feedback
+        model_performance = self._calculate_model_performance_metrics(feedback_records)
+        
+        # 4. Additional statistics
+        pattern_stats = self._calculate_pattern_feedback_stats(feedback_records)
+        feedback_by_date = self._calculate_feedback_by_date(feedback_records)
+        
+        return {
+            "timeframe": timeframe,
+            "total_feedback": total_count,
+            "feedback_by_type": feedback_by_type,
+            "acceptance_rate": feedback_by_type["rates"]["acceptance_rate"],
+            "rejection_rate": feedback_by_type["rates"]["rejection_rate"],
+            "modification_rate": feedback_by_type["rates"]["modification_rate"],
+            "feedback_trends": feedback_trends,
+            "model_performance": model_performance,
+            "pattern_feedback_stats": pattern_stats,
+            "feedback_by_date": feedback_by_date,
+            "generated_at": datetime.utcnow().isoformat()
+        }
+    
+    def _aggregate_feedback_by_type(self, feedback_records: List[FeedbackRecord]) -> Dict[str, Any]:
+        """Aggregate feedback counts and rates by type."""
+        total = len(feedback_records)
+        counts = Counter(record.feedback_type for record in feedback_records)
+        
+        accept_count = counts.get('accept', 0)
+        reject_count = counts.get('reject', 0)
+        modify_count = counts.get('modify', 0)
+        ignore_count = counts.get('ignore', 0)
+        
+        return {
+            "counts": {
+                "accept": accept_count,
+                "reject": reject_count,
+                "modify": modify_count,
+                "ignore": ignore_count
+            },
+            "rates": {
+                "acceptance_rate": round((accept_count / total) * 100, 2) if total > 0 else 0,
+                "rejection_rate": round((reject_count / total) * 100, 2) if total > 0 else 0,
+                "modification_rate": round((modify_count / total) * 100, 2) if total > 0 else 0,
+                "ignore_rate": round((ignore_count / total) * 100, 2) if total > 0 else 0
+            }
+        }
+    
+    def _calculate_feedback_trends_over_time(
+        self, 
+        feedback_records: List[FeedbackRecord],
+        days: int
+    ) -> List[Dict[str, Any]]:
+        """Calculate feedback trends over time periods."""
+        # Group feedback by date
+        daily_data = defaultdict(lambda: {
+            'accept': 0, 
+            'reject': 0, 
+            'modify': 0, 
+            'ignore': 0,
+            'total': 0
+        })
+        
+        for record in feedback_records:
+            date_str = record.created_at.strftime('%Y-%m-%d')
+            daily_data[date_str][record.feedback_type] += 1
+            daily_data[date_str]['total'] += 1
+        
+        # Convert to list format with acceptance rates
+        trends = []
+        for date_str in sorted(daily_data.keys()):
+            data = daily_data[date_str]
+            total = data['total']
+            
+            trends.append({
+                'date': date_str,
+                'accept': data['accept'],
+                'reject': data['reject'],
+                'modify': data['modify'],
+                'ignore': data['ignore'],
+                'total': total,
+                'acceptance_rate': round((data['accept'] / total) * 100, 2) if total > 0 else 0
+            })
+        
+        return trends
+    
+    def _calculate_model_performance_metrics(
+        self, 
+        feedback_records: List[FeedbackRecord]
+    ) -> List[Dict[str, Any]]:
+        """Calculate model performance metrics based on feedback data."""
+        total = len(feedback_records)
+        if total == 0:
+            return []
+        
+        # Count feedback types
+        accept_count = sum(1 for r in feedback_records if r.feedback_type == 'accept')
+        reject_count = sum(1 for r in feedback_records if r.feedback_type == 'reject')
+        modify_count = sum(1 for r in feedback_records if r.feedback_type == 'modify')
+        
+        # Calculate average confidence scores for accepted suggestions
+        accepted_with_confidence = [
+            r.issue.confidence_score 
+            for r in feedback_records 
+            if r.feedback_type == 'accept' and r.issue and r.issue.confidence_score is not None
+        ]
+        avg_confidence = sum(accepted_with_confidence) / len(accepted_with_confidence) if accepted_with_confidence else 0
+        
+        # Calculate suggestion quality score (weighted metric)
+        # Accept = 1.0, Modify = 0.5, Reject = 0.0
+        quality_score = (accept_count + (modify_count * 0.5)) / total if total > 0 else 0
+        
+        # Calculate user engagement rate (non-ignore feedback)
+        engaged_count = accept_count + reject_count + modify_count
+        engagement_rate = (engaged_count / total) * 100 if total > 0 else 0
+        
+        # Get model version performance if available
+        model_versions = self.db.query(ModelVersion).filter(
+            ModelVersion.is_active == True
+        ).order_by(desc(ModelVersion.created_at)).limit(1).all()
+        
+        current_model_accuracy = model_versions[0].accuracy_score if model_versions else None
+        
+        return [
+            {
+                "metric": "Acceptance Rate",
+                "value": round((accept_count / total) * 100, 2),
+                "unit": "%",
+                "description": "Percentage of suggestions accepted by users"
+            },
+            {
+                "metric": "Suggestion Quality Score",
+                "value": round(quality_score * 100, 2),
+                "unit": "%",
+                "description": "Weighted quality metric (accept=100%, modify=50%, reject=0%)"
+            },
+            {
+                "metric": "User Engagement Rate",
+                "value": round(engagement_rate, 2),
+                "unit": "%",
+                "description": "Percentage of suggestions that received active feedback"
+            },
+            {
+                "metric": "Average Confidence Score",
+                "value": round(avg_confidence * 100, 2) if avg_confidence else 0,
+                "unit": "%",
+                "description": "Average AI confidence for accepted suggestions"
+            },
+            {
+                "metric": "Model Accuracy",
+                "value": round(current_model_accuracy * 100, 2) if current_model_accuracy else 0,
+                "unit": "%",
+                "description": "Current active model accuracy score"
+            }
+        ]
+    
+    def _empty_statistics_response(self, timeframe: str) -> Dict[str, Any]:
+        """Return empty statistics response when no data is available."""
+        return {
+            "timeframe": timeframe,
+            "total_feedback": 0,
+            "feedback_by_type": {
+                "counts": {"accept": 0, "reject": 0, "modify": 0, "ignore": 0},
+                "rates": {
+                    "acceptance_rate": 0.0,
+                    "rejection_rate": 0.0,
+                    "modification_rate": 0.0,
+                    "ignore_rate": 0.0
+                }
+            },
+            "acceptance_rate": 0.0,
+            "rejection_rate": 0.0,
+            "modification_rate": 0.0,
+            "feedback_trends": [],
+            "model_performance": [],
+            "pattern_feedback_stats": {},
+            "feedback_by_date": {},
+            "generated_at": datetime.utcnow().isoformat()
+        }
+    
+    def _trigger_learning_pipeline_update(
+        self,
+        user_id: int,
+        issue_id: str,
+        feedback_type: str,
+        feedback_value: int,
+        feedback_comment: Optional[str] = None,
+        modified_suggestion: Optional[str] = None
+    ) -> None:
+        """
+        Trigger learning pipeline update when feedback is received.
+        
+        This method connects feedback collection to the learning system with
+        automatic pattern updates as required by the learning pipeline integration.
+        
+        Args:
+            user_id: User ID
+            issue_id: Issue ID
+            feedback_type: Type of feedback
+            feedback_value: Numeric feedback value
+            feedback_comment: Optional feedback comment
+            modified_suggestion: Optional modified suggestion
+        
+        Requirements: 8.5, 8.6, 8.10
+        """
+        try:
+            # Import here to avoid circular imports
+            from app.services.learning_pipeline_service import LearningPipelineService
+            
+            # Create learning pipeline service instance
+            learning_service = LearningPipelineService(self.db)
+            
+            # Process feedback for learning
+            learning_result = learning_service.process_feedback_for_learning(
+                user_id=user_id,
+                issue_id=issue_id,
+                feedback_type=feedback_type,
+                feedback_value=feedback_value,
+                feedback_comment=feedback_comment,
+                modified_suggestion=modified_suggestion
+            )
+            
+            if learning_result.get("success"):
+                logger.info(f"Learning pipeline updated for user {user_id}: {learning_result.get('updated_patterns', 0)} patterns updated")
+            else:
+                logger.warning(f"Learning pipeline update failed for user {user_id}: {learning_result.get('error', 'Unknown error')}")
+                
+        except Exception as e:
+            # Don't fail feedback recording if learning pipeline fails
+            logger.error(f"Error triggering learning pipeline update: {e}")
+            # Continue without raising exception to ensure feedback is still recorded

@@ -1,0 +1,33 @@
+Test Report - Wed Oct 22 07:13:57 PM IST 2025
+================================================================================================
+
+
+================================================================================================
+TEST SUITE: Backend Unit Tests
+================================================================================================
+/home/revan/.local/lib/python3.13/site-packages/pytest_asyncio/plugin.py:208: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+============================= test session starts ==============================
+platform linux -- Python 3.13.7, pytest-8.3.4, pluggy-1.5.0 -- /usr/bin/python
+cachedir: .pytest_cache
+rootdir: /home/revan/Documents/PS_PROJECT/CodeNova/backend
+configfile: pytest.ini
+testpaths: tests
+plugins: cov-6.0.0, asyncio-0.24.0, anyio-4.8.0
+asyncio: mode=Mode.STRICT, default_loop_scope=None
+collecting ... collected 345 items
+
+tests/e2e/test_admin_workflows.py::TestAdminTeamManagementWorkflow::test_create_and_manage_team FAILED [  0%]
+
+=================================== FAILURES ===================================
+_________ TestAdminTeamManagementWorkflow.test_create_and_manage_team __________
+tests/e2e/test_admin_workflows.py:81: in test_create_and_manage_team
+    assert "user1@example.com" in member_emails
+E   AssertionError: assert 'user1@example.com' in ['revankokkirala@gmail.com', 'demo@codenova.com']
+=========================== short test summary info ============================
+FAILED tests/e2e/test_admin_workflows.py::TestAdminTeamManagementWorkflow::test_create_and_manage_team - AssertionError: assert 'user1@example.com' in ['revankokkirala@gmail.com', 'demo@codenova.com']
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+======================== 1 failed, 99 warnings in 2.61s ========================
+STATUS: FAILED

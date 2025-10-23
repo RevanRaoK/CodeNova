@@ -20,32 +20,41 @@ const COLORS = {
 };
 
 export function FeedbackStatsChart({ data, timeRange }) {
+  console.log('FeedbackStatsChart received data:', data);
+  console.log('Data length:', data?.length);
+  
+  // Ensure data is an array
+  const dataArray = Array.isArray(data) ? data : [];
+  
   // Transform data for charts
-  const pieData = data.map(item => ({
-    name: item.feedbackType || item.name,
+  const pieData = dataArray.map(item => ({
+    name: item.type || item.feedbackType || item.name,
     value: item.count || item.value,
-    color: COLORS[item.feedbackType] || COLORS[item.name] || '#6366F1'
+    color: COLORS[(item.type || item.feedbackType || item.name || '').toLowerCase()] || '#6366F1'
   }));
 
-  const barData = data.map(item => ({
-    name: (item.feedbackType || item.name || '').charAt(0).toUpperCase() + 
-           (item.feedbackType || item.name || '').slice(1),
+  const barData = dataArray.map(item => ({
+    name: item.type || item.feedbackType || item.name || '',
     value: item.count || item.value,
-    fill: COLORS[item.feedbackType] || COLORS[item.name] || '#6366F1'
+    fill: COLORS[(item.type || item.feedbackType || item.name || '').toLowerCase()] || '#6366F1'
   }));
+  
+  console.log('Transformed pieData:', pieData);
+  console.log('Transformed barData:', barData);
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
+      const total = dataArray.reduce((sum, item) => sum + (item.count || item.value || 0), 0);
       return (
         <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
           <p className="font-medium">{`${label || payload[0].name}`}</p>
           <p className="text-sm text-gray-600">
             Count: <span className="font-medium">{payload[0].value}</span>
           </p>
-          {data.length > 0 && (
+          {total > 0 && (
             <p className="text-sm text-gray-600">
               Percentage: <span className="font-medium">
-                {((payload[0].value / data.reduce((sum, item) => sum + (item.count || item.value), 0)) * 100).toFixed(1)}%
+                {((payload[0].value / total) * 100).toFixed(1)}%
               </span>
             </p>
           )}
@@ -62,7 +71,7 @@ export function FeedbackStatsChart({ data, timeRange }) {
         Breakdown of feedback types for the selected {timeRange}
       </p>
       
-      {data.length === 0 ? (
+      {dataArray.length === 0 ? (
         <div className="h-64 flex items-center justify-center text-gray-500">
           <div className="text-center">
             <p className="text-lg font-medium">No feedback data</p>
@@ -114,19 +123,22 @@ export function FeedbackStatsChart({ data, timeRange }) {
       )}
 
       {/* Summary Stats */}
-      {data.length > 0 && (
+      {dataArray.length > 0 && (
         <div className="mt-4 pt-4 border-t border-gray-200">
           <div className="grid grid-cols-3 gap-4 text-center">
-            {data.map((item, index) => (
-              <div key={index} className="text-sm">
-                <div 
-                  className="w-3 h-3 rounded-full mx-auto mb-1"
-                  style={{ backgroundColor: COLORS[item.feedbackType] || COLORS[item.name] || '#6366F1' }}
-                ></div>
-                <p className="font-medium text-gray-900">{item.count || item.value}</p>
-                <p className="text-gray-500 capitalize">{item.feedbackType || item.name}</p>
-              </div>
-            ))}
+            {dataArray.map((item, index) => {
+              const itemName = item.type || item.feedbackType || item.name || '';
+              return (
+                <div key={index} className="text-sm">
+                  <div 
+                    className="w-3 h-3 rounded-full mx-auto mb-1"
+                    style={{ backgroundColor: COLORS[itemName.toLowerCase()] || '#6366F1' }}
+                  ></div>
+                  <p className="font-medium text-gray-900">{item.count || item.value}</p>
+                  <p className="text-gray-500 capitalize">{itemName}</p>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

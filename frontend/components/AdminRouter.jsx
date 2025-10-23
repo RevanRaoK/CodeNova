@@ -1,6 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import ProtectedRoute from './ProtectedRoute';
 import AdminLogin from '../pages/AdminLogin';
 import AdminLayout from './Layout/AdminLayout';
 import AdminAccessDenied from './AdminAccessDenied';
@@ -13,9 +14,10 @@ import PlatformStatsPanel from './admin/PlatformStatsPanel';
 
 /**
  * Admin router component that handles admin-specific routing and authentication
+ * Uses role-based access control to restrict admin routes
  */
 const AdminRouter = () => {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
 
   // Check if user has admin privileges
   const isAdmin = user && (user.role === 'admin' || user.role === 'team_lead');
@@ -25,13 +27,14 @@ const AdminRouter = () => {
       {/* Admin login route - accessible to all */}
       <Route path="/login" element={<AdminLogin />} />
 
-      {/* Protected admin routes */}
+      {/* Protected admin routes with role-based access */}
       <Route
         path="/*"
         element={
-          !isAuthenticated ? (
-            <Navigate to="/admin/login" replace />
-          ) : isAdmin ? (
+          <ProtectedRoute 
+            allowedRoles={['admin', 'team_lead']}
+            redirectTo="/admin/login"
+          >
             <AdminLayout>
               <Routes>
                 <Route path="/" element={<DashboardOverview />} />
@@ -45,9 +48,7 @@ const AdminRouter = () => {
                 <Route path="*" element={<Navigate to="/admin" replace />} />
               </Routes>
             </AdminLayout>
-          ) : (
-            <AdminAccessDenied />
-          )
+          </ProtectedRoute>
         }
       />
     </Routes>

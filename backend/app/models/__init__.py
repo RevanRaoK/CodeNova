@@ -5,9 +5,13 @@ from .users import User, Token, UserRole
 from .review import Review, ReviewSuggestion, Feedback, SeverityLevel
 from .feedback import Issue, FeedbackRecord, ModelVersion
 from .enhanced_feedback import EnhancedFeedback, FeedbackAction
+from .feedback_patterns import UserFeedbackPattern
 from .file_storage import StoredFile
 from .github_integration import GitHubRepository, PRAnalysis, AnalysisStatus
+from .github_oauth import GitHubOAuthIntegration, GitHubOAuthState, GitHubOAuthTempData
 from .team import Team
+from .file_batch import FileBatch, BatchFile, BatchStatus, FileStatus
+from .audit_log import AuditLog
 
 __all__ = [
     "Repository",
@@ -24,10 +28,19 @@ __all__ = [
     "FeedbackRecord",
     "ModelVersion",
     "EnhancedFeedback",
-    "FeedbackAction", 
+    "FeedbackAction",
+    "UserFeedbackPattern",
     "StoredFile",
     "GitHubRepository",
     "PRAnalysis",
     "AnalysisStatus",
-    "Team"
+    "GitHubOAuthIntegration",
+    "GitHubOAuthState",
+    "GitHubOAuthTempData",
+    "Team",
+    "FileBatch",
+    "BatchFile",
+    "BatchStatus",
+    "FileStatus",
+    "AuditLog"
 ]

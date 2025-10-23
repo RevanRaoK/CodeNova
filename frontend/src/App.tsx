@@ -9,7 +9,7 @@ import GoogleOAuthProvider from '../components/providers/GoogleOAuthProvider';
 import NotificationManager from '../components/NotificationManager';
 import ProtectedRoute from '../components/ProtectedRoute';
 import WorkflowOrchestrator from '../components/WorkflowOrchestrator';
-import { ErrorBoundary } from '../utils/errorHandler';
+import { ErrorBoundary } from '../utils/errorHandler.jsx';
 import { Home } from '../pages/Home';
 import { Dashboard } from '../components/Dashboard';
 import { Homepage } from '../components/Homepage';
@@ -25,6 +25,7 @@ import { MonacoEditorTest } from '../components/MonacoEditorTest';
 import { MonacoEditorDemo } from '../components/MonacoEditorDemo';
 import { ApiTest } from '../pages/ApiTest';
 import { NotificationDemo } from '../pages/NotificationDemo';
+import IntegrationDemo from '../pages/IntegrationDemo';
 import AdminDashboard from '../components/AdminDashboard';
 import GitHubIntegration from '../components/GitHubIntegration';
 import GitHubOAuthCallback from '../components/GitHubOAuthCallback';
@@ -244,6 +245,10 @@ export function App() {
                           <Route path="/dashboard" element={<Dashboard />} />
                           <Route path="/code-review" element={<CodeReview />} />
                           <Route
+                            path="/analysis-history"
+                            element={<PatternLibrary />}
+                          />
+                          <Route
                             path="/pattern-library"
                             element={<PatternLibrary />}
                           />
@@ -270,6 +275,10 @@ export function App() {
                           <Route
                             path="/notification-demo"
                             element={<NotificationDemo />}
+                          />
+                          <Route
+                            path="/integration-demo"
+                            element={<IntegrationDemo />}
                           />
                         </Route>
                       </Routes>

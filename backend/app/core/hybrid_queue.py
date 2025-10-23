@@ -16,6 +16,7 @@ import time
 import logging
 import asyncio
 import aio_pika
+import aiormq
 from typing import Dict, Any, Optional, Callable, List
 from datetime import datetime, timedelta
 from dataclasses import dataclass, asdict
@@ -307,9 +308,15 @@ class HybridQueue:
                     forwarded_count += 1
                 except Exception as e:
                     logger.error(f"Failed to forward task: {e}")
-                    # Put task back in Redis queue for retry
-                    await self.redis_client.lpush(redis_queue_name, task_data)
+                    # Don't requeue - log and drop the task to prevent infinite loops
+                    # The task status in Redis will show as failed
                     self.metrics.failed_forwards += 1
+                    try:
+                        task_dict = json.loads(task_data.decode())
+                        task_id = task_dict.get('id', 'unknown')
+                        await self._mark_task_failed(task_id, f"Failed to forward to RabbitMQ: {str(e)}")
+                    except:
+                        pass
         
         if forwarded_count > 0:
             self.metrics.rabbitmq_tasks_processed += forwarded_count
@@ -359,6 +366,7 @@ class HybridQueue:
                 if task.name not in self.task_registry:
                     logger.error(f"Task function {task.name} not registered")
                     await self._mark_task_failed(task.id, f"Task function {task.name} not registered")
+                    # Don't raise - acknowledge the message to prevent requeue
                     return
                 
                 # Mark as processing
@@ -379,11 +387,12 @@ class HybridQueue:
                     execution_time = time.time() - start_time
                     await self._mark_task_failed(task.id, str(e), execution_time)
                     logger.error(f"Task {task.id} failed: {e}")
+                    # Don't raise - task is marked as failed, acknowledge message
                 
             except Exception as e:
                 logger.error(f"Failed to process RabbitMQ message: {e}")
-                # Message will be rejected and potentially requeued
-                raise
+                # Don't raise - acknowledge the message to prevent infinite requeue loop
+                # Log the error and move on
     
     async def _execute_task_function(self, func: Callable, args: List[Any], kwargs: Dict[str, Any]):
         """Execute task function (sync or async)."""

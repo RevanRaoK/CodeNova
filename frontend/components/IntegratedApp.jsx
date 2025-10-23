@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 import { useWorkflow } from './WorkflowOrchestrator';
-import { ErrorBoundary } from '../utils/errorHandler';
-import errorHandler from '../utils/errorHandler';
+import { ErrorBoundary } from '../utils/errorHandler.jsx';
+import errorHandler from '../utils/errorHandler.jsx';
 import { logger } from '../utils/environment';
 
 /**

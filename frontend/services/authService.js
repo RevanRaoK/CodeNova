@@ -39,7 +39,8 @@ class AuthService {
       };
     } catch (error) {
       console.error('Login failed:', error);
-      throw this.handleAuthError(error);
+      // Just throw the error as-is, it's already enhanced by httpClient
+      throw error;
     }
   }
 
@@ -74,7 +75,8 @@ class AuthService {
       };
     } catch (error) {
       console.error('Registration failed:', error);
-      throw this.handleAuthError(error);
+      // Just throw the error as-is, it's already enhanced by httpClient
+      throw error;
     }
   }
 
@@ -129,7 +131,8 @@ class AuthService {
       console.error('Token refresh failed:', error);
       // Clear auth data on refresh failure
       this.clearAuthData();
-      throw this.handleAuthError(error);
+      // Just throw the error as-is, it's already enhanced by httpClient
+      throw error;
     }
   }
 
@@ -218,24 +221,30 @@ class AuthService {
    * @returns {Error} Processed error with user-friendly message
    */
   handleAuthError(error) {
+    // If error is already enhanced by httpClient, just return it
+    if (error.userMessage || error.type) {
+      return error;
+    }
+
+    // Handle raw axios errors
     if (error.response) {
       const { status, data } = error.response;
 
       switch (status) {
         case 400:
-          return new Error(data.detail || 'Invalid request. Please check your input.');
+          return new Error(data?.detail || 'Invalid request. Please check your input.');
         case 401:
           return new Error('Invalid credentials. Please check your email and password.');
         case 403:
           return new Error('Access forbidden. Your account may be disabled.');
         case 422:
-          return new Error(data.detail || 'Validation error. Please check your input.');
+          return new Error(data?.detail || 'Validation error. Please check your input.');
         case 429:
           return new Error('Too many requests. Please try again later.');
         case 500:
           return new Error('Server error. Please try again later.');
         default:
-          return new Error(data.detail || 'Authentication failed. Please try again.');
+          return new Error(data?.detail || 'Authentication failed. Please try again.');
       }
     } else if (error.request) {
       return new Error('Network error. Please check your connection and try again.');
@@ -319,7 +328,8 @@ class AuthService {
       };
     } catch (error) {
       console.error('Google OAuth login failed:', error);
-      throw this.handleAuthError(error);
+      // Just throw the error as-is, it's already enhanced by httpClient
+      throw error;
     }
   }
 }

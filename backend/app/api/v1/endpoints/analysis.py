@@ -10,6 +10,7 @@ from app.core.database import get_db, SessionLocal
 from app.services.repository_services import repository_service
 from app.db import models
 from app.models.analysis import DirectAnalysis
+from app.models.file_batch import FileBatch
 from app.api.v1.endpoints.auth import get_current_active_user
 from app.models.users import User
 from app.schemas.analysis import (
@@ -19,6 +20,9 @@ from app.schemas.analysis import (
 from pydantic import BaseModel, Field, validator
 
 router = APIRouter()
+
+# In-memory cache to prevent duplicate analysis requests
+_active_analyses = {}  # {user_id: {code_hash: analysis_id}}
 
 class DirectCodeAnalysisRequest(BaseModel):
     code: str = Field(
@@ -31,10 +35,10 @@ class DirectCodeAnalysisRequest(BaseModel):
         description="Programming language",
         pattern=r"^[a-zA-Z0-9_+-]+$"
     )
-    filename: Optional[str] = Field(
-        default=None, 
+    filename: str = Field(
+        min_length=1,
         max_length=255,
-        description="Optional filename for context"
+        description="Filename for the code (required for tracking and history)"
     )
     
     @validator('code')
@@ -46,6 +50,16 @@ class DirectCodeAnalysisRequest(BaseModel):
         if len(lines) > 2000:
             raise ValueError('Code content exceeds maximum line limit of 2000 lines')
         return v
+    
+    @validator('filename')
+    def validate_filename(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Filename is required and cannot be empty')
+        # Check for invalid characters
+        invalid_chars = ['<', '>', ':', '"', '|', '?', '*', '\0']
+        if any(char in v for char in invalid_chars):
+            raise ValueError('Filename contains invalid characters')
+        return v.strip()
     
     @validator('language')
     def validate_language(cls, v):
@@ -203,12 +217,31 @@ async def analyze_code_direct(
     
     Requirements covered: 1.1, 1.2, 2.1, 2.3
     """
-    from app.services.ai_service import aiservice  # local import
+    from app.services.ai_service import get_ai_service_for_user  # local import
     from app.utils.ast_parser import ASTParser
     from app.services.issue_id_service import IssueIDService
     
+    # Generate code hash for deduplication
+    import hashlib
+    code_hash = hashlib.sha256(request.code.encode('utf-8')).hexdigest()[:16]
+    
+    # Check if this exact code is already being analyzed by this user
+    if current_user.id in _active_analyses:
+        if code_hash in _active_analyses[current_user.id]:
+            existing_analysis_id = _active_analyses[current_user.id][code_hash]
+            print(f"Duplicate analysis request detected for user {current_user.id}, returning existing analysis {existing_analysis_id}")
+            raise HTTPException(
+                status_code=409,
+                detail=f"Analysis already in progress for this code. Analysis ID: {existing_analysis_id}"
+            )
+    
     analysis_id = str(uuid.uuid4())
     created_at = datetime.utcnow()
+    
+    # Mark this analysis as active
+    if current_user.id not in _active_analyses:
+        _active_analyses[current_user.id] = {}
+    _active_analyses[current_user.id][code_hash] = analysis_id
     
     print(f"Starting analysis for user {current_user.id}, analysis_id: {analysis_id}")
     
@@ -237,9 +270,13 @@ async def analyze_code_direct(
         # Generate code hash for issue ID generation
         code_hash = issue_id_service.generate_code_hash(request.code)
         
+        # Get AI service configured with user's API key if available
+        print("Getting AI service for user...")
+        ai_service = get_ai_service_for_user(current_user.id, db)
+        
         # Get code review suggestions from Gemini AI
         print("Calling AI service...")
-        suggestions = aiservice.get_review_for_code(request.code)
+        suggestions = ai_service.get_review_for_code(request.code)
         print(f"AI service returned {len(suggestions)} suggestions")
         
         # Transform suggestions to structured issue dictionaries with unique IDs
@@ -432,8 +469,14 @@ async def analyze_code_direct(
             from app.models.feedback import Issue
             
             for issue_data in issues:
+                # Get issue_id from either "issue_id" or "id" field
+                issue_id = issue_data.get("issue_id") or issue_data.get("id")
+                if not issue_id:
+                    print(f"Warning: Issue data missing issue_id: {issue_data}")
+                    continue
+                    
                 db_issue = Issue(
-                    id=issue_data["id"],
+                    id=issue_id,
                     analysis_id=analysis_id,
                     pattern_type=issue_data.get("rule", "unknown"),
                     severity=issue_data["severity"],
@@ -463,6 +506,12 @@ async def analyze_code_direct(
             import traceback
             traceback.print_exc()
             db.rollback()
+        finally:
+            # Remove from active analyses
+            if current_user.id in _active_analyses and code_hash in _active_analyses[current_user.id]:
+                del _active_analyses[current_user.id][code_hash]
+                if not _active_analyses[current_user.id]:
+                    del _active_analyses[current_user.id]
         
         # Enhanced response with feedback collection interface
         response = {
@@ -512,6 +561,12 @@ async def analyze_code_direct(
             detail=f"Validation error: {str(e)}"
         )
     except Exception as e:
+        # Remove from active analyses on error
+        if current_user.id in _active_analyses and code_hash in _active_analyses[current_user.id]:
+            del _active_analyses[current_user.id][code_hash]
+            if not _active_analyses[current_user.id]:
+                del _active_analyses[current_user.id]
+        
         # Store failed analysis in database
         try:
             failed_analysis = DirectAnalysis(
@@ -657,41 +712,60 @@ async def get_analysis_history(
     db: Session = Depends(get_db)
 ):
     """
-    Get user's analysis history with pagination and filtering.
+    Get user's analysis history including both direct and repository analyses.
     
     Requirements covered: 2.1, 5.1, 5.2
     """
     print(f"DEBUG: get_analysis_history called for user {current_user.id}")
     try:
-        # Build query
+        # Get direct analyses
         print(f"DEBUG: Building query for user_id {current_user.id}")
-        query = db.query(DirectAnalysis).filter(DirectAnalysis.user_id == current_user.id)
+        direct_query = db.query(DirectAnalysis).filter(DirectAnalysis.user_id == current_user.id)
         
-        # Apply filters
+        # Apply filters for direct analyses
         if language:
             print(f"DEBUG: Filtering by language: {language}")
-            query = query.filter(DirectAnalysis.language == language.lower())
+            direct_query = direct_query.filter(DirectAnalysis.language == language.lower())
         if status:
             print(f"DEBUG: Filtering by status: {status}")
-            query = query.filter(DirectAnalysis.status == status.lower())
+            direct_query = direct_query.filter(DirectAnalysis.status == status.lower())
         
-        # Get total count
-        total_count = query.count()
-        print(f"DEBUG: Total count: {total_count}")
+        direct_analyses = direct_query.order_by(DirectAnalysis.created_at.desc()).all()
         
-        # Apply pagination
-        offset = (page - 1) * page_size
-        analyses = query.order_by(DirectAnalysis.created_at.desc()).offset(offset).limit(page_size).all()
-        print(f"DEBUG: Found {len(analyses)} analyses after pagination")
+        # Get repository analyses
+        from app.models.github_integration import PRAnalysis, GitHubRepository
+        repo_query = db.query(PRAnalysis).join(
+            GitHubRepository, PRAnalysis.repository_id == GitHubRepository.id
+        ).filter(GitHubRepository.user_id == current_user.id)
         
-        # Convert to response format
-        history_items = []
-        for analysis in analyses:
-            history_items.append({
+        repo_analyses = repo_query.order_by(PRAnalysis.created_at.desc()).all()
+        
+        # Get batch analyses
+        from app.models.file_batch import BatchFile, FileStatus
+        batch_query = db.query(BatchFile).join(
+            FileBatch, BatchFile.batch_id == FileBatch.id
+        ).filter(
+            FileBatch.user_id == current_user.id,
+            BatchFile.status == FileStatus.COMPLETED
+        )
+        
+        # Apply filters for batch analyses
+        if language:
+            batch_query = batch_query.filter(BatchFile.language == language.lower())
+        
+        batch_files = batch_query.order_by(BatchFile.completed_at.desc()).all()
+        
+        # Combine and sort all analyses
+        all_analyses = []
+        
+        # Add direct analyses
+        for analysis in direct_analyses:
+            all_analyses.append({
                 "analysis_id": analysis.id,
+                "type": "direct",
                 "status": analysis.status,
                 "language": analysis.language,
-                "filename": analysis.filename,
+                "filename": analysis.filename or f"code.{analysis.language}",
                 "issues_count": analysis.issues_count or 0,
                 "errors_count": analysis.errors_count or 0,
                 "warnings_count": analysis.warnings_count or 0,
@@ -700,12 +774,58 @@ async def get_analysis_history(
                 "completed_at": analysis.completed_at.isoformat() if analysis.completed_at else None
             })
         
+        # Add repository analyses
+        for analysis in repo_analyses:
+            repo = db.query(GitHubRepository).filter(GitHubRepository.id == analysis.repository_id).first()
+            all_analyses.append({
+                "analysis_id": analysis.id,
+                "type": "repository",
+                "status": analysis.status.value if hasattr(analysis.status, 'value') else str(analysis.status),
+                "language": "multiple",
+                "filename": f"Full Repository Analysis - {repo.repo_name if repo else 'Unknown'}",
+                "repository_name": repo.repo_name if repo else "Unknown",
+                "issues_count": analysis.issues_found or 0,
+                "errors_count": analysis.errors_count or 0,
+                "warnings_count": analysis.warnings_count or 0,
+                "lines_of_code": None,
+                "created_at": analysis.created_at.isoformat(),
+                "completed_at": analysis.completed_at.isoformat() if analysis.completed_at else None
+            })
+        
+        # Add batch analyses
+        for batch_file in batch_files:
+            all_analyses.append({
+                "analysis_id": batch_file.id,
+                "type": "batch",
+                "status": "completed",
+                "language": batch_file.language or "unknown",
+                "filename": batch_file.filename,
+                "batch_id": batch_file.batch_id,
+                "issues_count": batch_file.issues_count or 0,
+                "errors_count": batch_file.errors_count or 0,
+                "warnings_count": batch_file.warnings_count or 0,
+                "suggestions_count": batch_file.suggestions_count or 0,
+                "lines_of_code": len(batch_file.file_content.split('\n')) if batch_file.file_content else 0,
+                "created_at": batch_file.created_at.isoformat(),
+                "completed_at": batch_file.completed_at.isoformat() if batch_file.completed_at else None
+            })
+        
+        # Sort by created_at descending
+        all_analyses.sort(key=lambda x: x['created_at'], reverse=True)
+        
+        # Apply pagination
+        total_count = len(all_analyses)
+        offset = (page - 1) * page_size
+        paginated_analyses = all_analyses[offset:offset + page_size]
+        
+        print(f"DEBUG: Total count: {total_count}, returning {len(paginated_analyses)} analyses")
+        
         # Calculate pagination info
         has_next = offset + page_size < total_count
         has_previous = page > 1
         
         return {
-            "analyses": history_items,
+            "analyses": paginated_analyses,
             "total_count": total_count,
             "page": page,
             "page_size": page_size,
@@ -724,6 +844,60 @@ async def get_analysis_history(
             "has_next": False,
             "has_previous": False
         }
+
+@router.get("/batch/{batch_file_id}", status_code=200)
+async def get_batch_file_analysis(
+    batch_file_id: str = Path(..., description="Batch file ID"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get detailed analysis results for a specific batch file.
+    
+    Requirements covered: 2.1, 5.1
+    """
+    try:
+        from app.models.file_batch import BatchFile, FileStatus
+        
+        # Get the batch file
+        batch_file = db.query(BatchFile).join(
+            FileBatch, BatchFile.batch_id == FileBatch.id
+        ).filter(
+            BatchFile.id == batch_file_id,
+            FileBatch.user_id == current_user.id
+        ).first()
+        
+        if not batch_file:
+            raise HTTPException(status_code=404, detail="Batch file analysis not found")
+        
+        # Structure the response similar to direct analysis
+        return {
+            "analysis_id": batch_file.id,
+            "type": "batch",
+            "status": "completed" if batch_file.status == FileStatus.COMPLETED else "failed",
+            "language": batch_file.language,
+            "filename": batch_file.filename,
+            "batch_id": batch_file.batch_id,
+            "file_size_kb": round(batch_file.file_size_bytes / 1024, 2) if batch_file.file_size_bytes else 0,
+            "lines_count": len(batch_file.file_content.split('\n')) if batch_file.file_content else 0,
+            "created_at": batch_file.created_at.isoformat(),
+            "completed_at": batch_file.completed_at.isoformat() if batch_file.completed_at else None,
+            "processing_time_seconds": batch_file.processing_time_seconds,
+            "issues": batch_file.analysis_results or [],
+            "metrics": batch_file.analysis_metrics or {},
+            "summary": batch_file.analysis_summary or "",
+            "issues_count": batch_file.issues_count or 0,
+            "errors_count": batch_file.errors_count or 0,
+            "warnings_count": batch_file.warnings_count or 0,
+            "suggestions_count": batch_file.suggestions_count or 0,
+            "error_message": batch_file.error_message
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"ERROR in get_batch_file_analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve batch file analysis")
 
 @router.get("/direct/stats", status_code=200)
 async def get_analysis_stats(
@@ -850,68 +1024,134 @@ async def get_direct_analysis_by_id(
     db: Session = Depends(get_db)
 ):
     """
-    Get a specific direct analysis by ID.
+    Get a specific analysis by ID (handles both direct and repository analyses).
     
     Users can only access their own analyses.
     """
     try:
+        # Try direct analysis first
         analysis = db.query(DirectAnalysis).filter(
             DirectAnalysis.id == analysis_id,
             DirectAnalysis.user_id == current_user.id
         ).first()
         
-        if not analysis:
-            raise HTTPException(status_code=404, detail="Analysis not found")
+        if analysis:
+            # Convert stored results back to response format
+            if analysis.results and analysis.status == "completed":
+                stored_results = analysis.results
+                
+                return {
+                    "analysis_id": analysis.id,
+                    "type": "direct",
+                    "status": analysis.status,
+                    "issues": stored_results.get("issues", []),
+                    "metrics": stored_results.get("metrics", {}),
+                    "summary": stored_results.get("summary", ""),
+                    "created_at": analysis.created_at.isoformat(),
+                    "completed_at": analysis.completed_at.isoformat() if analysis.completed_at else None,
+                    "language": analysis.language,
+                    "filename": analysis.filename,
+                    "file_size_bytes": analysis.file_size_bytes or 0,
+                    "processing_time_ms": stored_results.get("processing_time_ms"),
+                    "ai_model_used": stored_results.get("ai_model_used")
+                }
+            else:
+                # Return minimal response for failed or pending analyses
+                return {
+                    "analysis_id": analysis.id,
+                    "type": "direct",
+                    "status": analysis.status,
+                    "issues": [],
+                    "metrics": {
+                        "lines_of_code": analysis.lines_of_code or 0,
+                        "total_lines": analysis.lines_of_code or 0,
+                        "complexity": 0,
+                        "maintainability_index": 0,
+                        "duplicate_lines": 0,
+                        "test_coverage": None,
+                        "comment_lines": 0,
+                        "blank_lines": 0,
+                        "function_count": 0,
+                        "class_count": 0,
+                        "comment_ratio": 0.0,
+                        "complexity_per_function": None
+                    },
+                    "summary": analysis.error_message or "Analysis failed",
+                    "created_at": analysis.created_at.isoformat(),
+                    "completed_at": analysis.completed_at.isoformat() if analysis.completed_at else None,
+                    "language": analysis.language,
+                    "filename": analysis.filename,
+                    "file_size_bytes": analysis.file_size_bytes or 0
+                }
         
-        # Convert stored results back to response format
-        if analysis.results and analysis.status == "completed":
-            stored_results = analysis.results
+        # Try repository analysis
+        from app.models.github_integration import PRAnalysis, GitHubRepository
+        repo_analysis = db.query(PRAnalysis).join(
+            GitHubRepository, PRAnalysis.repository_id == GitHubRepository.id
+        ).filter(
+            PRAnalysis.id == analysis_id,
+            GitHubRepository.user_id == current_user.id
+        ).first()
+        
+        if repo_analysis:
+            repo = db.query(GitHubRepository).filter(GitHubRepository.id == repo_analysis.repository_id).first()
+            
+            # Extract issues from analysis_results
+            issues = []
+            if repo_analysis.analysis_results and isinstance(repo_analysis.analysis_results, dict):
+                raw_issues = repo_analysis.analysis_results.get('issues', [])
+                for idx, issue in enumerate(raw_issues):
+                    file_path = issue.get('file_path')
+                    # Handle None, null, empty string, or "None" string
+                    if not file_path or file_path == 'None' or file_path == 'null':
+                        file_path = 'Unknown file'
+                    
+                    line_num = issue.get('line_number', 0)
+                    message = issue.get('comment', issue.get('message', 'No description'))
+                    
+                    # Prepend file path to message for clarity
+                    full_message = f"[{file_path}:{line_num}] {message}"
+                    
+                    issues.append({
+                        "id": issue.get('id', f"{repo_analysis.id}-{idx}"),
+                        "line": line_num,
+                        "column": 1,
+                        "severity": issue.get('severity', 'info'),
+                        "message": full_message,
+                        "rule": "gemini-ai-review",
+                        "category": "ai-review",
+                        "suggestion": issue.get('comment', ''),
+                        "file_path": file_path
+                    })
             
             return {
-                "analysis_id": analysis.id,
-                "status": analysis.status,
-                "issues": stored_results.get("issues", []),
-                "metrics": stored_results.get("metrics", {}),
-                "summary": stored_results.get("summary", ""),
-                "created_at": analysis.created_at.isoformat(),
-                "completed_at": analysis.completed_at.isoformat() if analysis.completed_at else None,
-                "language": analysis.language,
-                "filename": analysis.filename,
-                "file_size_bytes": analysis.file_size_bytes or 0,
-                "processing_time_ms": stored_results.get("processing_time_ms"),
-                "ai_model_used": stored_results.get("ai_model_used")
-            }
-        else:
-            # Return minimal response for failed or pending analyses
-            return {
-                "analysis_id": analysis.id,
-                "status": analysis.status,
-                "issues": [],
+                "analysis_id": repo_analysis.id,
+                "type": "repository",
+                "status": repo_analysis.status.value if hasattr(repo_analysis.status, 'value') else str(repo_analysis.status),
+                "issues": issues,
                 "metrics": {
-                    "lines_of_code": analysis.lines_of_code or 0,
-                    "total_lines": analysis.lines_of_code or 0,
-                    "complexity": 0,
-                    "maintainability_index": 0,
-                    "duplicate_lines": 0,
-                    "test_coverage": None,
-                    "comment_lines": 0,
-                    "blank_lines": 0,
-                    "function_count": 0,
-                    "class_count": 0,
-                    "comment_ratio": 0.0,
-                    "complexity_per_function": None
+                    "files_analyzed": repo_analysis.analysis_results.get('summary', {}).get('files_analyzed', 0) if repo_analysis.analysis_results else 0,
+                    "issues_found": repo_analysis.issues_found or 0,
+                    "errors_count": repo_analysis.errors_count or 0,
+                    "warnings_count": repo_analysis.warnings_count or 0
                 },
-                "summary": analysis.error_message or "Analysis failed",
-                "created_at": analysis.created_at.isoformat(),
-                "completed_at": analysis.completed_at.isoformat() if analysis.completed_at else None,
-                "language": analysis.language,
-                "filename": analysis.filename,
-                "file_size_bytes": analysis.file_size_bytes or 0
+                "summary": f"Repository analysis completed. {repo_analysis.issues_found or 0} issues found across multiple files.",
+                "created_at": repo_analysis.created_at.isoformat(),
+                "completed_at": repo_analysis.completed_at.isoformat() if repo_analysis.completed_at else None,
+                "language": "multiple",
+                "filename": f"Full Repository Analysis - {repo.repo_name if repo else 'Unknown'}",
+                "repository_name": repo.repo_name if repo else "Unknown",
+                "repository_id": repo_analysis.repository_id
             }
+        
+        raise HTTPException(status_code=404, detail="Analysis not found")
+        
     except HTTPException:
         raise
     except Exception as e:
         print(f"Error getting analysis by ID: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail="Failed to retrieve analysis")
 
 
@@ -1169,4 +1409,314 @@ async def get_analysis_issues(
         raise HTTPException(
             status_code=500,
             detail="Failed to retrieve analysis issues"
+        )
+
+
+# ============================================================================
+# WebSocket Endpoint for Real-Time Analysis Status Updates
+# Requirements covered: 13.1, 13.2, 13.3
+# ============================================================================
+
+from fastapi import WebSocket, WebSocketDisconnect
+import asyncio
+import json
+
+@router.websocket("/ws/analysis/{analysis_id}")
+async def analysis_status_websocket(
+    websocket: WebSocket,
+    analysis_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    WebSocket endpoint for real-time analysis status updates.
+    
+    Clients can connect to this endpoint to receive real-time updates
+    about the status of their analysis job.
+    
+    Requirements covered: 13.1, 13.2, 13.3
+    """
+    await websocket.accept()
+    
+    try:
+        # Send initial connection confirmation
+        await websocket.send_json({
+            "type": "connected",
+            "analysis_id": analysis_id,
+            "message": "Connected to analysis status stream"
+        })
+        
+        # Poll for status updates
+        last_status = None
+        max_iterations = 300  # 5 minutes with 1-second intervals
+        iteration = 0
+        
+        while iteration < max_iterations:
+            try:
+                # Query analysis status
+                analysis = db.query(DirectAnalysis).filter(
+                    DirectAnalysis.id == analysis_id
+                ).first()
+                
+                if not analysis:
+                    await websocket.send_json({
+                        "type": "error",
+                        "analysis_id": analysis_id,
+                        "message": "Analysis not found"
+                    })
+                    break
+                
+                # Check if status changed
+                current_status = analysis.status
+                if current_status != last_status:
+                    # Send status update
+                    update_data = {
+                        "type": "status_update",
+                        "analysis_id": analysis_id,
+                        "status": analysis.status,
+                        "updated_at": analysis.completed_at.isoformat() if analysis.completed_at else datetime.utcnow().isoformat()
+                    }
+                    
+                    # Add results if completed
+                    if analysis.status == "completed" and analysis.results:
+                        update_data["results_available"] = True
+                        update_data["issues_count"] = analysis.issues_count
+                        update_data["errors_count"] = analysis.errors_count
+                        update_data["warnings_count"] = analysis.warnings_count
+                    
+                    # Add error info if failed
+                    if analysis.status == "failed" and analysis.error_message:
+                        update_data["error_message"] = analysis.error_message
+                    
+                    await websocket.send_json(update_data)
+                    last_status = current_status
+                
+                # Break if analysis is complete or failed
+                if analysis.status in ["completed", "failed"]:
+                    await websocket.send_json({
+                        "type": "final",
+                        "analysis_id": analysis_id,
+                        "status": analysis.status,
+                        "message": "Analysis processing complete"
+                    })
+                    break
+                
+                # Wait before next poll
+                await asyncio.sleep(1)
+                iteration += 1
+                
+            except Exception as e:
+                logger.error(f"Error in WebSocket status update: {str(e)}")
+                await websocket.send_json({
+                    "type": "error",
+                    "analysis_id": analysis_id,
+                    "message": f"Error getting status: {str(e)}"
+                })
+                break
+        
+        # Timeout reached
+        if iteration >= max_iterations:
+            await websocket.send_json({
+                "type": "timeout",
+                "analysis_id": analysis_id,
+                "message": "Status monitoring timeout reached"
+            })
+    
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for analysis {analysis_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error for analysis {analysis_id}: {str(e)}")
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "analysis_id": analysis_id,
+                "message": str(e)
+            })
+        except:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except:
+            pass
+
+
+@router.websocket("/ws/batch/{batch_id}")
+async def batch_status_websocket(
+    websocket: WebSocket,
+    batch_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    WebSocket endpoint for real-time batch processing status updates.
+    
+    Clients can connect to this endpoint to receive real-time updates
+    about the status of their batch processing job.
+    
+    Requirements covered: 13.1, 13.2, 13.3
+    """
+    await websocket.accept()
+    
+    try:
+        # Send initial connection confirmation
+        await websocket.send_json({
+            "type": "connected",
+            "batch_id": batch_id,
+            "message": "Connected to batch status stream"
+        })
+        
+        # Poll for status updates
+        last_status = None
+        last_processed = 0
+        max_iterations = 600  # 10 minutes with 1-second intervals
+        iteration = 0
+        
+        while iteration < max_iterations:
+            try:
+                # Query batch status
+                batch = db.query(FileBatch).filter(
+                    FileBatch.id == batch_id
+                ).first()
+                
+                if not batch:
+                    await websocket.send_json({
+                        "type": "error",
+                        "batch_id": batch_id,
+                        "message": "Batch not found"
+                    })
+                    break
+                
+                # Check if status or progress changed
+                current_status = batch.status
+                current_processed = batch.processed_files
+                
+                if current_status != last_status or current_processed != last_processed:
+                    # Send status update
+                    update_data = {
+                        "type": "status_update",
+                        "batch_id": batch_id,
+                        "status": batch.status,
+                        "total_files": batch.total_files,
+                        "processed_files": batch.processed_files,
+                        "successful_files": batch.successful_files,
+                        "failed_files": batch.failed_files,
+                        "progress_percentage": batch.progress_percentage,
+                        "updated_at": datetime.utcnow().isoformat()
+                    }
+                    
+                    await websocket.send_json(update_data)
+                    last_status = current_status
+                    last_processed = current_processed
+                
+                # Break if batch is complete
+                if batch.is_complete:
+                    await websocket.send_json({
+                        "type": "final",
+                        "batch_id": batch_id,
+                        "status": batch.status,
+                        "message": "Batch processing complete",
+                        "successful_files": batch.successful_files,
+                        "failed_files": batch.failed_files
+                    })
+                    break
+                
+                # Wait before next poll
+                await asyncio.sleep(1)
+                iteration += 1
+                
+            except Exception as e:
+                logger.error(f"Error in WebSocket batch status update: {str(e)}")
+                await websocket.send_json({
+                    "type": "error",
+                    "batch_id": batch_id,
+                    "message": f"Error getting status: {str(e)}"
+                })
+                break
+        
+        # Timeout reached
+        if iteration >= max_iterations:
+            await websocket.send_json({
+                "type": "timeout",
+                "batch_id": batch_id,
+                "message": "Status monitoring timeout reached"
+            })
+    
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for batch {batch_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error for batch {batch_id}: {str(e)}")
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "batch_id": batch_id,
+                "message": str(e)
+            })
+        except:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except:
+            pass
+
+
+# ============================================================================
+# Polling Fallback Endpoints for Status Updates
+# Requirements covered: 13.1, 13.2, 13.3
+# ============================================================================
+
+@router.get("/direct/{analysis_id}/status")
+async def get_analysis_status(
+    analysis_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the current status of an analysis (polling fallback).
+    
+    This endpoint provides a polling-based alternative to WebSocket
+    for clients that cannot use WebSocket connections.
+    
+    Requirements covered: 13.1, 13.3
+    """
+    try:
+        analysis = db.query(DirectAnalysis).filter(
+            DirectAnalysis.id == analysis_id,
+            DirectAnalysis.user_id == current_user.id
+        ).first()
+        
+        if not analysis:
+            raise HTTPException(
+                status_code=404,
+                detail="Analysis not found or access denied"
+            )
+        
+        response = {
+            "analysis_id": analysis.id,
+            "status": analysis.status,
+            "created_at": analysis.created_at.isoformat(),
+            "completed_at": analysis.completed_at.isoformat() if analysis.completed_at else None,
+            "filename": analysis.filename,
+            "language": analysis.language
+        }
+        
+        # Add results summary if completed
+        if analysis.status == "completed":
+            response["issues_count"] = analysis.issues_count
+            response["errors_count"] = analysis.errors_count
+            response["warnings_count"] = analysis.warnings_count
+            response["results_available"] = True
+        
+        # Add error info if failed
+        if analysis.status == "failed":
+            response["error_message"] = analysis.error_message
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting analysis status: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get analysis status: {str(e)}"
         )

@@ -38,22 +38,97 @@ class FeedbackService {
   /**
    * Get feedback statistics for the current user
    * @param {Object} [options] - Query options
-   * @param {string} [options.timeRange] - Time range for statistics ('day', 'week', 'month', 'year')
+   * @param {string} [options.timeRange] - Time range for statistics ('week', 'month', 'quarter', 'year')
    * @param {string} [options.issueType] - Filter by issue type
    * @returns {Promise<Object>} Feedback statistics
    */
   async getFeedbackStats(options = {}) {
     try {
       const params = new URLSearchParams();
-      if (options.timeRange) params.append('time_range', options.timeRange);
-      if (options.issueType) params.append('issue_type', options.issueType);
+      // Map 'day' to 'week' for backend compatibility
+      const timeframe = options.timeRange === 'day' ? 'week' : (options.timeRange || 'week');
+      params.append('timeframe', timeframe);
 
-      const response = await httpClient.get(`/feedback/stats?${params}`);
-      return response.data;
+      console.log('Calling API:', `/feedback/statistics?${params}`);
+      const response = await httpClient.get(`/feedback/statistics?${params}`);
+      console.log('API Response status:', response.status);
+      console.log('API Response headers:', response.headers);
+      console.log('API Response data type:', typeof response.data);
+      console.log('API Response data:', response.data);
+      
+      return this.processFeedbackStatsResponse(response.data);
     } catch (error) {
       console.error('Failed to fetch feedback stats:', error);
+      console.error('Error response:', error.response?.data);
       throw this.handleFeedbackError(error);
     }
+  }
+
+  /**
+   * Process and normalize feedback statistics response
+   * @param {Object} data - Raw statistics data from API
+   * @returns {Object} Processed statistics data
+   */
+  processFeedbackStatsResponse(data) {
+    console.log('Raw API Response:', data);
+    console.log('Response type:', typeof data, 'Is array:', Array.isArray(data));
+    
+    // Handle empty array response (no data case)
+    if (Array.isArray(data) && data.length === 0) {
+      console.log('Empty array response - returning empty stats');
+      return {
+        totalFeedback: 0,
+        acceptanceRate: 0,
+        feedbackByType: [],
+        feedbackTrends: [],
+        modelPerformance: [],
+        timeframe: 'week',
+        generatedAt: new Date().toISOString()
+      };
+    }
+    
+    // Handle null or undefined
+    if (!data || typeof data !== 'object') {
+      console.log('Invalid data response - returning empty stats');
+      return {
+        totalFeedback: 0,
+        acceptanceRate: 0,
+        feedbackByType: [],
+        feedbackTrends: [],
+        modelPerformance: [],
+        timeframe: 'week',
+        generatedAt: new Date().toISOString()
+      };
+    }
+    
+    // Extract feedback counts from nested structure
+    const feedbackCounts = data.feedback_by_type?.counts || {};
+    
+    // Create array for charts - include all types even with zero counts for better visualization
+    const feedbackByType = [
+      { type: 'Accept', count: feedbackCounts.accept || 0 },
+      { type: 'Reject', count: feedbackCounts.reject || 0 },
+      { type: 'Modify', count: feedbackCounts.modify || 0 }
+    ];
+    
+    console.log('Processed feedbackByType:', feedbackByType);
+    
+    return {
+      totalFeedback: data.total_feedback || 0,
+      acceptanceRate: (data.acceptance_rate || 0) / 100, // Convert percentage to decimal
+      feedbackByType: feedbackByType,
+      feedbackTrends: (data.feedback_trends || []).map(trend => ({
+        date: trend.date,
+        accept: trend.accept || 0,
+        reject: trend.reject || 0,
+        modify: trend.modify || 0,
+        total: trend.total || 0,
+        acceptance_rate: trend.acceptance_rate || 0
+      })),
+      modelPerformance: data.model_performance || [],
+      timeframe: data.timeframe || 'week',
+      generatedAt: data.generated_at || new Date().toISOString()
+    };
   }
 
   /**
@@ -64,7 +139,12 @@ class FeedbackService {
   async getFeedbackByIssue(issueId) {
     try {
       const response = await httpClient.get(`/feedback/issue/${issueId}`);
-      return this.processFeedbackResponse(response.data);
+      // Backend returns an array of feedback records, get the first one (most recent)
+      const feedbackArray = response.data;
+      if (Array.isArray(feedbackArray) && feedbackArray.length > 0) {
+        return this.processFeedbackResponse(feedbackArray[0]);
+      }
+      return null;
     } catch (error) {
       // Handle 404 as "no feedback found" rather than an error
       if (error.response && error.response.status === 404) {
