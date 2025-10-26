@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, Search, Filter, Calendar, User, Activity, ChevronDown, ChevronUp } from 'lucide-react';
+import { Eye, Search, Filter, Calendar, User, Activity, ChevronDown, ChevronUp, FileText } from 'lucide-react';
 import adminService from '../../services/adminService.js';
+import EmptyState from '../EmptyState.jsx';
+import { toast } from '../../utils/toastNotifications.js';
 
 /**
  * Audit log panel for admin dashboard
@@ -38,6 +40,9 @@ const AuditLogPanel = ({ onError, onSuccess, currentUser }) => {
      }, [currentPage, filters, sortBy, sortOrder]);
 
      const loadAuditLogs = async () => {
+          const previousAuditLogs = auditLogs;
+          const previousTotalPages = totalPages;
+
           try {
                setLoading(true);
                const response = await adminService.getAuditLogs({
@@ -51,7 +56,31 @@ const AuditLogPanel = ({ onError, onSuccess, currentUser }) => {
                setAuditLogs(response.logs || []);
                setTotalPages(Math.ceil((response.total || 0) / itemsPerPage));
           } catch (error) {
-               onError(error);
+               console.error('Error loading audit logs:', error);
+               
+               // Show specific error messages based on error type
+               if (error.message?.includes('Network error')) {
+                    toast.error('Network error. Please check your connection and try again.');
+               } else if (error.message?.includes('Access denied')) {
+                    toast.error('Access denied. You need admin privileges to view audit logs.');
+               } else if (error.message?.includes('Server error')) {
+                    toast.error('Server error. Please try again in a few moments.');
+               } else {
+                    toast.error(`Failed to load audit logs: ${error.message || 'Unknown error'}`);
+               }
+
+               // Maintain previous state on error if we have data
+               if (previousAuditLogs.length > 0) {
+                    setAuditLogs(previousAuditLogs);
+                    setTotalPages(previousTotalPages);
+               } else {
+                    setAuditLogs([]);
+                    setTotalPages(1);
+               }
+
+               if (onError) {
+                    onError(error);
+               }
           } finally {
                setLoading(false);
           }
@@ -117,9 +146,10 @@ const AuditLogPanel = ({ onError, onSuccess, currentUser }) => {
      };
 
      return (
-          <div className="space-y-6">
+          <div className="px-4 sm:px-6 lg:px-8 py-8">
+               <div className="space-y-6">
                {/* Header */}
-               <div className="bg-white rounded-lg shadow-sm border p-6">
+               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
                          <div>
                               <h2 className="text-xl font-semibold text-gray-900">Audit Logs</h2>
@@ -196,7 +226,7 @@ const AuditLogPanel = ({ onError, onSuccess, currentUser }) => {
                </div>
 
                {/* Audit Logs Table */}
-               <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+               <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                     <div className="overflow-x-auto">
                          <table className="min-w-full divide-y divide-gray-200">
                               <thead className="bg-gray-50">
@@ -241,8 +271,16 @@ const AuditLogPanel = ({ onError, onSuccess, currentUser }) => {
                                         </tr>
                                    ) : auditLogs.length === 0 ? (
                                         <tr>
-                                             <td colSpan="5" className="px-6 py-12 text-center text-gray-500">
-                                                  No audit logs found
+                                             <td colSpan="5" className="px-6 py-4">
+                                                  <EmptyState
+                                                       icon={FileText}
+                                                       title="No Audit Logs Found"
+                                                       description={Object.values(filters).some(f => f) ? 
+                                                            "No audit logs match your current filters. Try adjusting your filter criteria." :
+                                                            "No administrative actions have been logged yet. Audit logs will appear here when admins perform actions."
+                                                       }
+                                                       className="py-8"
+                                                  />
                                              </td>
                                         </tr>
                                    ) : (
@@ -342,6 +380,7 @@ const AuditLogPanel = ({ onError, onSuccess, currentUser }) => {
                               </div>
                          </div>
                     )}
+               </div>
                </div>
           </div>
      );

@@ -49,8 +49,14 @@ const SuggestionFeedbackWidget = ({
     setError(null);
 
     try {
+      // Ensure we have a valid issue ID
+      const issueId = suggestion.id || suggestion.issueId || suggestion.issue_id;
+      if (!issueId) {
+        throw new Error('No valid issue ID found for this suggestion');
+      }
+
       const feedbackData = {
-        issueId: suggestion.id,
+        issueId: issueId,
         feedbackType: type,
         feedbackComment: comment || null,
         modifiedSuggestion: modifiedText || null,
@@ -76,7 +82,7 @@ const SuggestionFeedbackWidget = ({
           suggestion,
           feedbackType: type,
           modifiedSuggestion: modifiedText,
-          comment,
+          feedbackComment: comment,
           response
         });
       }
@@ -85,7 +91,13 @@ const SuggestionFeedbackWidget = ({
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
       console.error('Failed to submit feedback:', err);
-      setError(err.message || 'Failed to submit feedback');
+      if (err.message.includes('not found')) {
+        setError('This suggestion is no longer available. Please refresh the page and try again.');
+      } else if (err.message.includes('No valid issue ID')) {
+        setError('Unable to submit feedback: Invalid suggestion data. Please refresh the page.');
+      } else {
+        setError(err.message || 'Failed to submit feedback');
+      }
     } finally {
       setIsSubmitting(false);
     }

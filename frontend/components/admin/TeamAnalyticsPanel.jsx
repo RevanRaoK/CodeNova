@@ -76,9 +76,10 @@ const TeamAnalyticsPanel = ({ onError, onSuccess, currentUser }) => {
      const selectedTeamData = teams.find(team => team.id === selectedTeam);
 
      return (
-          <div className="space-y-6">
+          <div className="px-4 sm:px-6 lg:px-8 py-8">
+               <div className="space-y-6">
                {/* Header with Filters */}
-               <div className="bg-white rounded-lg shadow-sm border p-6">
+               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
                          <div>
                               <h2 className="text-xl font-semibold text-gray-900">Team Analytics</h2>
@@ -126,20 +127,20 @@ const TeamAnalyticsPanel = ({ onError, onSuccess, currentUser }) => {
                </div>
 
                {!selectedTeam ? (
-                    <div className="bg-white rounded-lg shadow-sm border p-12 text-center">
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
                          <BarChart3 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                          <h3 className="text-lg font-medium text-gray-900 mb-2">Select a Team</h3>
                          <p className="text-gray-600">Choose a team from the dropdown above to view analytics</p>
                     </div>
                ) : loading ? (
-                    <div className="bg-white rounded-lg shadow-sm border p-12 text-center">
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
                          <p className="text-gray-600 mt-4">Loading analytics...</p>
                     </div>
                ) : analytics ? (
                     <>
                          {/* Team Overview */}
-                         <div className="bg-white rounded-lg shadow-sm border p-6">
+                         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                               <h3 className="text-lg font-medium text-gray-900 mb-4">
                                    {selectedTeamData?.name} Overview
                               </h3>
@@ -189,7 +190,7 @@ const TeamAnalyticsPanel = ({ onError, onSuccess, currentUser }) => {
 
                          {/* Usage Trends Chart */}
                          {analytics.usage_trends && analytics.usage_trends.length > 0 && (
-                              <div className="bg-white rounded-lg shadow-sm border p-6">
+                              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                    <h3 className="text-lg font-medium text-gray-900 mb-4">Usage Trends</h3>
                                    <div className="h-80">
                                         <ResponsiveContainer width="100%" height="100%">
@@ -227,7 +228,7 @@ const TeamAnalyticsPanel = ({ onError, onSuccess, currentUser }) => {
 
                          {/* Member Performance */}
                          {analytics.member_performance && analytics.member_performance.length > 0 && (
-                              <div className="bg-white rounded-lg shadow-sm border p-6">
+                              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                    <h3 className="text-lg font-medium text-gray-900 mb-4">Member Performance</h3>
                                    <div className="h-80">
                                         <ResponsiveContainer width="100%" height="100%">
@@ -253,7 +254,7 @@ const TeamAnalyticsPanel = ({ onError, onSuccess, currentUser }) => {
                          {/* Feedback Distribution */}
                          {analytics.feedback_distribution && (
                               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                   <div className="bg-white rounded-lg shadow-sm border p-6">
+                                   <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                         <h3 className="text-lg font-medium text-gray-900 mb-4">Feedback Distribution</h3>
                                         <div className="h-64">
                                              <ResponsiveContainer width="100%" height="100%">
@@ -286,7 +287,7 @@ const TeamAnalyticsPanel = ({ onError, onSuccess, currentUser }) => {
 
                                    {/* Top Rejection Reasons */}
                                    {analytics.rejection_reasons && analytics.rejection_reasons.length > 0 && (
-                                        <div className="bg-white rounded-lg shadow-sm border p-6">
+                                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                              <h3 className="text-lg font-medium text-gray-900 mb-4">Top Rejection Reasons</h3>
                                              <div className="space-y-3">
                                                   {analytics.rejection_reasons.slice(0, 5).map((reason, index) => (
@@ -316,12 +317,13 @@ const TeamAnalyticsPanel = ({ onError, onSuccess, currentUser }) => {
                          )}
                     </>
                ) : (
-                    <div className="bg-white rounded-lg shadow-sm border p-12 text-center">
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
                          <BarChart3 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                          <h3 className="text-lg font-medium text-gray-900 mb-2">No Data Available</h3>
                          <p className="text-gray-600">No analytics data found for the selected team and date range</p>
                     </div>
                )}
+               </div>
           </div>
      );
 };

@@ -575,10 +575,10 @@ class BackgroundCodeAnalysisService:
                 await self._cache_result(analysis_id, result)
                 await self._trigger_progress_callbacks(analysis_id, "Running AI analysis", 60)
                 
-                ai_suggestions = await aiservice.get_review_for_code_with_ast(
+                ai_suggestions = aiservice.analyze_code(
                     code=content,
                     language=result.request.language,
-                    analysis_id=analysis_id
+                    filename=result.request.filename or "code.py"
                 )
                 
                 result.ai_insights = ai_suggestions
@@ -661,16 +661,19 @@ class BackgroundCodeAnalysisService:
         }
         return analysis_type in ai_analysis_types and settings.GEMINI_API_KEY
     
-    def _extract_suggestions(self, ai_insights: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _extract_suggestions(self, ai_insights: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Extract actionable suggestions from AI insights."""
         suggestions = []
         
-        for insight in ai_insights:
+        # Handle the new structure where ai_insights is a dict with 'issues' key
+        issues = ai_insights.get('issues', []) if isinstance(ai_insights, dict) else ai_insights
+        
+        for insight in issues:
             if insight.get('severity') in ['suggestion', 'info']:
                 suggestions.append({
                     'type': 'improvement',
-                    'message': insight.get('comment', ''),
-                    'line': insight.get('line_number'),
+                    'message': insight.get('message', insight.get('comment', '')),
+                    'line': insight.get('line', insight.get('line_number')),
                     'file': insight.get('file_path'),
                     'priority': 'low'
                 })

@@ -321,7 +321,7 @@ async def analyze_code_direct(
                 "message": suggestion.get('comment', 'No comment provided'),
                 "rule": "gemini-ai-review",
                 "category": "ai-review",
-                "suggestion": suggestion.get('suggestion', suggestion.get('comment', ''))
+                "suggestion": suggestion.get("suggestion", suggestion.get("comment", ""))
             }
             issues.append(issue)
             
@@ -1477,14 +1477,14 @@ async def analysis_status_websocket(
                     }
                     
                     # Add results if completed
-                    if analysis.status == "completed" and analysis.results:
+                    if analysis.status == "completed":
                         update_data["results_available"] = True
                         update_data["issues_count"] = analysis.issues_count
                         update_data["errors_count"] = analysis.errors_count
                         update_data["warnings_count"] = analysis.warnings_count
                     
                     # Add error info if failed
-                    if analysis.status == "failed" and analysis.error_message:
+                    if analysis.status == "failed":
                         update_data["error_message"] = analysis.error_message
                     
                     await websocket.send_json(update_data)
@@ -1720,3 +1720,93 @@ async def get_analysis_status(
             status_code=500,
             detail=f"Failed to get analysis status: {str(e)}"
         )
+
+@router.get("/repository/{repository_analysis_id}", status_code=200)
+async def get_repository_analysis(
+    repository_analysis_id: str = Path(..., description="Repository analysis ID"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get detailed analysis results for a specific repository analysis.
+    """
+    try:
+        from app.models.github_integration import PRAnalysis, GitHubRepository
+        from uuid import UUID
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        logger.info(f"Fetching repository analysis for ID: {repository_analysis_id}")
+        
+        try:
+            # Try to convert to UUID first
+            analysis_id = UUID(repository_analysis_id)
+            logger.debug(f"Converted {repository_analysis_id} to UUID: {analysis_id}")
+        except (ValueError, AttributeError) as e:
+            logger.warning(f"Could not convert {repository_analysis_id} to UUID, using as string: {str(e)}")
+            analysis_id = repository_analysis_id
+        
+        logger.debug(f"Querying database for analysis with ID: {analysis_id}")
+        
+        # Convert analysis_id to string for the query since the database stores it as VARCHAR
+        analysis_id_str = str(analysis_id)
+        
+        # Use text() to ensure proper type casting in the query
+        from sqlalchemy import text
+        
+        # First try with the ID as a string (VARCHAR)
+        analysis = db.query(PRAnalysis).join(
+            GitHubRepository, PRAnalysis.repository_id == GitHubRepository.id
+        ).filter(
+            PRAnalysis.id == analysis_id_str,
+            GitHubRepository.user_id == current_user.id
+        ).first()
+        
+        # If not found, try with the ID as a UUID (if it was provided as UUID string)
+        if not analysis and isinstance(analysis_id, UUID):
+            analysis = db.query(PRAnalysis).join(
+                GitHubRepository, PRAnalysis.repository_id == GitHubRepository.id
+            ).filter(
+                text("pr_analyses.id::uuid = :id").params(id=str(analysis_id)),
+                GitHubRepository.user_id == current_user.id
+            ).first()
+
+        if not analysis:
+            logger.warning(f"Analysis not found for ID: {analysis_id}")
+            raise HTTPException(status_code=404, detail="Repository analysis not found")
+
+        logger.debug(f"Found analysis: {analysis.id}, fetching repository details")
+        repo = db.query(GitHubRepository).filter(GitHubRepository.id == analysis.repository_id).first()
+        
+        if not repo:
+            logger.error(f"Repository not found for analysis ID: {analysis_id}")
+            raise HTTPException(status_code=404, detail="Repository not found")
+
+        # Prepare response data
+        response_data = {
+            "analysis_id": str(analysis.id),
+            "type": "repository",
+            "status": analysis.status.value if hasattr(analysis.status, 'value') else str(analysis.status),
+            "language": "multiple",
+            "filename": f"Full Repository Analysis - {repo.repo_name if repo else 'Unknown'}",
+            "repository_name": repo.repo_name if repo else "Unknown",
+            "issues": analysis.issues_found or [],
+            "metrics": analysis.metrics or {},
+            "summary": analysis.summary or "",
+            "created_at": analysis.created_at.isoformat(),
+            "completed_at": analysis.completed_at.isoformat() if analysis.completed_at else None,
+            "processing_time": analysis.processing_time_ms or None
+        }
+
+    except HTTPException as he:
+        logger.error(f"HTTPException in get_repository_analysis: {str(he)}")
+        raise
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        logger.error(f"Unexpected error in get_repository_analysis: {str(e)}\n{error_trace}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while fetching the repository analysis: {str(e)}"
+        )
+        raise HTTPException(status_code=500, detail="Failed to retrieve repository analysis")

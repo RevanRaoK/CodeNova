@@ -244,6 +244,19 @@ const AnalysisHistory = ({ onAnalysisSelect, enableFeedback = true }) => {
                         <h3 className="text-sm font-medium text-gray-900 truncate">
                           {analysis.filename || 'Untitled'}
                         </h3>
+                        
+                        {/* Type badge */}
+                        {analysis.type && (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                            analysis.type === 'repository' ? 'bg-purple-100 text-purple-800 border-purple-200' :
+                            analysis.type === 'batch' ? 'bg-blue-100 text-blue-800 border-blue-200' :
+                            'bg-gray-100 text-gray-800 border-gray-200'
+                          }`}>
+                            {analysis.type === 'repository' ? 'Repository' : 
+                             analysis.type === 'batch' ? 'Batch' : 'Direct'}
+                          </span>
+                        )}
+                        
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getStatusBadge(analysis.status)}`}>
                           {getStatusIcon(analysis.status)}
                           <span className="ml-1">{analysis.status}</span>
@@ -252,6 +265,12 @@ const AnalysisHistory = ({ onAnalysisSelect, enableFeedback = true }) => {
 
                       <div className="flex items-center space-x-4 text-xs text-gray-500">
                         <span>{analysis.language}</span>
+                        {analysis.repositoryName && (
+                          <>
+                            <span>•</span>
+                            <span className="text-purple-600">{analysis.repositoryName}</span>
+                          </>
+                        )}
                         <span>•</span>
                         <span>{analysis.issuesCount || 0} issues</span>
                         {analysis.errorsCount > 0 && (
@@ -318,10 +337,147 @@ const AnalysisHistory = ({ onAnalysisSelect, enableFeedback = true }) => {
                       </div>
                     )}
 
-                    {/* Placeholder for issues - would need to fetch from API */}
-                    <div className="text-xs text-gray-500 italic">
-                      Click "View Full Results" to see detailed issues and provide feedback
-                    </div>
+                    {/* Display issues/suggestions with feedback widgets */}
+                    {(analysis.issues && analysis.issues.length > 0) || analysis.issuesCount > 0 ? (
+                      <div className="space-y-3">
+                        <div className="text-sm font-medium text-gray-700">
+                          Issues & Suggestions ({analysis.issues?.length || analysis.issuesCount || 0})
+                        </div>
+                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                          {!analysis.issues || analysis.issues.length === 0 ? (
+                            // Show placeholder when issues aren't loaded yet
+                            <div className="text-center py-4 text-gray-500">
+                              <div className="text-sm">
+                                {analysis.issuesCount > 0 
+                                  ? `${analysis.issuesCount} issues found. Click "View Full Results" to see details.`
+                                  : 'No issues found in this analysis'
+                                }
+                              </div>
+                            </div>
+                          ) : analysis.type === 'repository' ? (
+                            // Group issues by file for repository analyses
+                            (() => {
+                              const issuesByFile = analysis.issues.reduce((acc, issue) => {
+                                const filePath = issue.filePath || 'Unknown file';
+                                if (!acc[filePath]) acc[filePath] = [];
+                                acc[filePath].push(issue);
+                                return acc;
+                              }, {});
+
+                              return Object.entries(issuesByFile).map(([filePath, fileIssues]) => (
+                                <div key={filePath} className="border border-gray-300 rounded-lg bg-white mb-4 shadow-sm">
+                                  {/* File Path Header - Made more prominent like a heading */}
+                                  <div className="bg-gradient-to-r from-slate-100 to-gray-100 px-4 py-4 border-b-2 border-indigo-200">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center space-x-3">
+                                        <FileTextIcon className="h-5 w-5 text-indigo-600" />
+                                        <div>
+                                          <h4 className="text-base font-bold text-gray-900 mb-1">
+                                            📁 File Path
+                                          </h4>
+                                          <code className="text-sm font-mono text-indigo-800 bg-indigo-50 px-3 py-1 rounded-md border border-indigo-200">
+                                            {filePath}
+                                          </code>
+                                        </div>
+                                      </div>
+                                      <div className="text-right">
+                                        <div className="text-xs text-gray-500 mb-1">Issues Found</div>
+                                        <span className="text-lg font-bold text-indigo-700 bg-indigo-100 px-3 py-1 rounded-full">
+                                          {fileIssues.length}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="p-4 space-y-3">
+                                    {fileIssues.map((issue, issueIndex) => (
+                                      <div key={issue.id || issueIndex} className="border border-gray-100 rounded-lg p-3 bg-gray-50 hover:bg-gray-100 transition-colors">
+                                        <div className="flex items-center space-x-2 mb-2">
+                                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                            issue.severity === 'error' ? 'bg-red-100 text-red-800 border border-red-200' :
+                                            issue.severity === 'warning' ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' :
+                                            'bg-blue-100 text-blue-800 border border-blue-200'
+                                          }`}>
+                                            {issue.severity.toUpperCase()}
+                                          </span>
+                                          <span className="text-xs font-medium text-gray-600 bg-gray-200 px-2 py-1 rounded">
+                                            Line {issue.line}
+                                          </span>
+                                        </div>
+                                        <div className="text-sm text-gray-900 mb-3 leading-relaxed">
+                                          {/* Clean the message by removing file path prefix if it exists */}
+                                          {issue.message.replace(/^\[.*?\:\d+\]\s*/, '')}
+                                        </div>
+                                        {issue.suggestion && (
+                                          <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded border-l-2 border-blue-200">
+                                            <strong>Suggestion:</strong> {issue.suggestion}
+                                          </div>
+                                        )}
+                                        {enableFeedback && (
+                                          <div className="mt-2">
+                                            <SuggestionFeedbackWidget
+                                              suggestion={issue}
+                                              onFeedbackSubmit={(feedbackData) => {
+                                                console.log('Feedback submitted:', feedbackData);
+                                              }}
+                                              compact={true}
+                                            />
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ));
+                            })()
+                          ) : (
+                            // Regular display for direct/batch analyses
+                            (analysis.issues || []).map((issue, issueIndex) => (
+                              <div key={issue.id || issueIndex} className="border border-gray-200 rounded-lg p-3 bg-white">
+                                <div className="flex items-start justify-between mb-2">
+                                  <div className="flex-1">
+                                    <div className="flex items-center space-x-2 mb-1">
+                                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                        issue.severity === 'error' ? 'bg-red-100 text-red-800' :
+                                        issue.severity === 'warning' ? 'bg-yellow-100 text-yellow-800' :
+                                        'bg-blue-100 text-blue-800'
+                                      }`}>
+                                        {issue.severity}
+                                      </span>
+                                      <span className="text-xs text-gray-500">
+                                        Line {issue.line}, Column {issue.column}
+                                      </span>
+                                    </div>
+                                    <div className="text-sm text-gray-800 mb-2">
+                                      {issue.message}
+                                    </div>
+                                    {issue.suggestion && (
+                                      <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded border-l-2 border-blue-200">
+                                        <strong>Suggestion:</strong> {issue.suggestion}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                {enableFeedback && (
+                                  <div className="mt-2">
+                                    <SuggestionFeedbackWidget
+                                      suggestion={issue}
+                                      onFeedbackSubmit={(feedbackData) => {
+                                        console.log('Feedback submitted:', feedbackData);
+                                      }}
+                                      compact={true}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-gray-500 italic">
+                        No issues found in this analysis
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

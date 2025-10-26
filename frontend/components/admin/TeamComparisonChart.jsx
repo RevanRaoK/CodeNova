@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BarChart3, TrendingUp, Users, Activity, Award } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import adminService from '../../services/adminService.js';
+import EmptyState from '../EmptyState.jsx';
 
 /**
  * Team comparison chart showing performance metrics across teams
@@ -79,7 +80,7 @@ const TeamComparisonChart = ({ dateRange, teamId, onError, onSuccess, currentUse
      return (
           <div className="space-y-6">
                {/* Header */}
-               <div className="bg-white rounded-lg shadow-sm border p-6">
+               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
                          <div>
                               <h3 className="text-lg font-medium text-gray-900">Team Performance Comparison</h3>
@@ -127,21 +128,23 @@ const TeamComparisonChart = ({ dateRange, teamId, onError, onSuccess, currentUse
                </div>
 
                {loading ? (
-                    <div className="bg-white rounded-lg shadow-sm border p-12 text-center">
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
                          <p className="text-gray-600 mt-4">Loading team comparison...</p>
                     </div>
                ) : teamsData.length === 0 ? (
-                    <div className="bg-white rounded-lg shadow-sm border p-12 text-center">
-                         <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                         <h3 className="text-lg font-medium text-gray-900 mb-2">No Team Data</h3>
-                         <p className="text-gray-600">No team data available for comparison</p>
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                         <EmptyState
+                              icon={Users}
+                              title="No Team Data Available"
+                              description="No team data is available for comparison. Teams will appear here once they have activity data to compare."
+                         />
                     </div>
                ) : (
                     <>
                          {/* Bar Chart View */}
                          {viewMode === 'bar' && (
-                              <div className="bg-white rounded-lg shadow-sm border p-6">
+                              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                    <h3 className="text-lg font-medium text-gray-900 mb-4">Reviews by Team</h3>
                                    <div className="h-96">
                                         <ResponsiveContainer width="100%" height="100%">
@@ -177,7 +180,7 @@ const TeamComparisonChart = ({ dateRange, teamId, onError, onSuccess, currentUse
 
                          {/* Radar Chart View */}
                          {viewMode === 'radar' && radarData.length > 0 && (
-                              <div className="bg-white rounded-lg shadow-sm border p-6">
+                              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                    <h3 className="text-lg font-medium text-gray-900 mb-4">Team Performance Radar (Top 5)</h3>
                                    <div className="h-96">
                                         <ResponsiveContainer width="100%" height="100%">
@@ -216,7 +219,7 @@ const TeamComparisonChart = ({ dateRange, teamId, onError, onSuccess, currentUse
 
                          {/* Table View */}
                          {viewMode === 'table' && (
-                              <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+                              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                                    <div className="overflow-x-auto">
                                         <table className="min-w-full divide-y divide-gray-200">
                                              <thead className="bg-gray-50">
@@ -312,7 +315,7 @@ const TeamComparisonChart = ({ dateRange, teamId, onError, onSuccess, currentUse
 
                          {/* Summary Statistics */}
                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                              <div className="bg-white rounded-lg shadow-sm border p-6">
+                              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                    <div className="flex items-center">
                                         <div className="bg-blue-100 rounded-full p-3">
                                              <Users className="h-6 w-6 text-blue-600" />
@@ -326,7 +329,7 @@ const TeamComparisonChart = ({ dateRange, teamId, onError, onSuccess, currentUse
                                    </div>
                               </div>
 
-                              <div className="bg-white rounded-lg shadow-sm border p-6">
+                              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                    <div className="flex items-center">
                                         <div className="bg-green-100 rounded-full p-3">
                                              <Activity className="h-6 w-6 text-green-600" />
@@ -340,7 +343,7 @@ const TeamComparisonChart = ({ dateRange, teamId, onError, onSuccess, currentUse
                                    </div>
                               </div>
 
-                              <div className="bg-white rounded-lg shadow-sm border p-6">
+                              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                    <div className="flex items-center">
                                         <div className="bg-yellow-100 rounded-full p-3">
                                              <TrendingUp className="h-6 w-6 text-yellow-600" />
@@ -356,7 +359,7 @@ const TeamComparisonChart = ({ dateRange, teamId, onError, onSuccess, currentUse
                                    </div>
                               </div>
 
-                              <div className="bg-white rounded-lg shadow-sm border p-6">
+                              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                    <div className="flex items-center">
                                         <div className="bg-purple-100 rounded-full p-3">
                                              <Award className="h-6 w-6 text-purple-600" />

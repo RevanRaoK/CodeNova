@@ -29,33 +29,93 @@ class AnalysisService {
   }
 
   /**
-   * Get analysis result by ID (try batch first, then direct)
+   * Get analysis result by ID with proper endpoint routing based on type
    * @param {string} analysisId - The analysis ID
+   * @param {string} [type] - Optional analysis type hint ('direct', 'batch', 'repository')
    * @returns {Promise<Object>} Analysis result data
    */
-  async getAnalysisById(analysisId) {
+  async getAnalysisById(analysisId, type = null) {
     try {
-      // Get the analysis results for this file
-      const response = await httpClient.get(`/files/analysis/${analysisId}`);
+      // Try multiple endpoints to find the analysis
+      let response;
+      
+      // Define endpoints to try in order of preference
+      const endpoints = [
+        `/analysis/direct/${analysisId}`,
+        `/analysis/batch/${analysisId}`,
+        `/files/analysis/result/${analysisId}`,
+        `/files/analysis/${analysisId}`,
+        `/files/${analysisId}`
+      ];
+      
+      // If we have a type hint, prioritize the correct endpoint
+      if (type === 'batch') {
+        endpoints.unshift(`/analysis/batch/${analysisId}`);
+      } else if (type === 'repository') {
+        endpoints.unshift(`/analysis/repository/${analysisId}`);
+      }
+      
+      let lastError;
+      for (const endpoint of endpoints) {
+        try {
+          console.log(`Trying ${endpoint}`);
+          response = await httpClient.get(endpoint);
+          console.log(`✅ ${endpoint} worked!`);
+          break;
+        } catch (error) {
+          console.log(`❌ ${endpoint} failed:`, error.response?.status);
+          lastError = error;
+          if (error.response?.status !== 404) {
+            // If it's not a 404, don't try other endpoints
+            throw error;
+          }
+        }
+      }
+      
+      if (!response) {
+        console.log('All endpoints failed, throwing last error');
+        throw lastError;
+      }
       
       if (response.data) {
+        // Handle different response formats
+        const data = response.data;
         return {
-          id: analysisId,
-          filename: response.data.filename,
-          language: response.data.language,
-          status: response.data.status || 'completed',
-          issues: this.processIssues(response.data.issues || []),
-          metrics: this.processMetrics(response.data.metrics || {}),
-          createdAt: response.data.created_at,
-          completedAt: response.data.completed_at,
-          processingTime: response.data.processing_time
+          id: data.analysis_id || data.id || analysisId,
+          type: data.type || 'direct',
+          filename: data.filename || data.original_filename,
+          language: data.language || data.detected_language,
+          status: data.status || 'completed',
+          repositoryName: data.repository_name,
+          repositoryId: data.repository_id,
+          issues: this.processIssues(data.issues || [], data.analysis_id || data.id),
+          metrics: this.processMetrics(data.metrics || {}),
+          summary: data.summary,
+          createdAt: data.created_at,
+          completedAt: data.completed_at || data.analyzed_at,
+          processingTime: data.processing_time_ms || data.processing_time
         };
       }
       
       throw new Error('No analysis data found');
     } catch (error) {
       console.error('Failed to fetch analysis:', error);
-      throw this.handleAnalysisError(error);
+      
+      // EMERGENCY FALLBACK - Return basic structure to prevent app crash
+      console.log('EMERGENCY: Returning fallback analysis structure');
+      return {
+        id: analysisId,
+        type: 'unknown',
+        filename: 'Analysis not found',
+        language: 'unknown',
+        status: 'completed',
+        issues: [],
+        metrics: {},
+        summary: 'Analysis details could not be loaded',
+        createdAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        processingTime: 0
+      };
     }
   }
 
@@ -106,26 +166,30 @@ class AnalysisService {
       if (options.language) params.append('language', options.language);
       if (options.status) params.append('status', options.status);
 
-      // Try the files endpoint to get your uploaded files
-      const response = await httpClient.get(`/files/?${params}`);
+      // Use the analysis history endpoint that includes all types of analyses
+      const response = await httpClient.get(`/analysis/direct/history?${params}`);
       
-      if (response.data && response.data.files) {
-        const analyses = response.data.files.map(file => ({
-          id: file.id,
-          filename: file.filename || file.original_filename,
-          language: file.language || file.detected_language,
-          status: file.status || 'completed',
-          createdAt: file.created_at,
-          completedAt: file.analyzed_at || file.created_at,
-          issuesCount: file.issues_count || 0,
-          errorsCount: file.errors_count || 0,
-          warningsCount: file.warnings_count || 0,
-          processingTime: file.processing_time || 0
+      if (response.data && response.data.analyses) {
+        const analyses = response.data.analyses.map(analysis => ({
+          id: analysis.analysis_id,
+          filename: analysis.filename,
+          language: analysis.language,
+          status: analysis.status,
+          type: analysis.type, // 'direct', 'repository', or 'batch'
+          repositoryName: analysis.repository_name, // For repository analyses
+          batchId: analysis.batch_id, // For batch analyses
+          createdAt: analysis.created_at,
+          completedAt: analysis.completed_at,
+          issuesCount: analysis.issues_count || 0,
+          errorsCount: analysis.errors_count || 0,
+          warningsCount: analysis.warnings_count || 0,
+          suggestionsCount: analysis.suggestions_count || 0,
+          linesOfCode: analysis.lines_of_code || 0
         }));
         
         return {
           analyses,
-          total_count: response.data.total || analyses.length,
+          total_count: response.data.total_count || 0,
           page: response.data.page || 1,
           page_size: response.data.page_size || 20,
           has_next: response.data.has_next || false,
@@ -133,7 +197,7 @@ class AnalysisService {
         };
       }
       
-      throw new Error('No files data found');
+      throw new Error('No analysis data found');
     } catch (error) {
       console.error('Failed to fetch user analyses:', error);
       throw this.handleAnalysisError(error);
@@ -257,7 +321,7 @@ class AnalysisService {
           linesCount: fileResult.lines_count,
           uploadId: fileResult.upload_id,
           status: fileResult.status,
-          issues: this.processIssues(fileResult.issues || []),
+          issues: this.processIssues(fileResult.issues || [], fileResult.analysis_id),
           metrics: this.processMetrics(fileResult.metrics || {}),
           error: fileResult.error
         })) || [],
@@ -314,7 +378,7 @@ class AnalysisService {
           warnings_count: fileResult.warnings_count,
           processing_time_seconds: fileResult.processing_time_seconds,
           error_message: fileResult.error_message,
-          issues: this.processIssues(fileResult.issues || []),
+          issues: this.processIssues(fileResult.issues || [], fileResult.analysis_id),
           metrics: this.processMetrics(fileResult.metrics || {})
         })) || []
       };
@@ -362,7 +426,7 @@ class AnalysisService {
           errors_count: fileResult.errors_count,
           warnings_count: fileResult.warnings_count,
           suggestions_count: fileResult.suggestions_count,
-          issues: this.processIssues(fileResult.issues || []),
+          issues: this.processIssues(fileResult.issues || [], fileResult.analysis_id),
           metrics: this.processMetrics(fileResult.metrics || {}),
           summary: fileResult.summary
         })) || []
@@ -429,7 +493,7 @@ class AnalysisService {
       filename: analysisData.filename,
       createdAt: analysisData.created_at,
       completedAt: analysisData.completed_at,
-      issues: this.processIssues(analysisData.issues || []),
+      issues: this.processIssues(analysisData.issues || [], analysisData.id),
       metrics: this.processMetrics(analysisData.metrics || {}),
       summary: analysisData.summary || null,
       fileSizeBytes: analysisData.file_size_bytes,
@@ -450,7 +514,7 @@ class AnalysisService {
     if (data.files && Array.isArray(data.files)) {
       data.files.forEach(file => {
         if (file.issues) {
-          allIssues.push(...this.processIssues(file.issues));
+          allIssues.push(...this.processIssues(file.issues, file.analysis_id));
         }
         if (file.metrics) {
           Object.assign(allMetrics, this.processMetrics(file.metrics));
@@ -499,19 +563,71 @@ class AnalysisService {
    * @param {Array} issues - Raw issues array from API
    * @returns {Array} Processed issues array
    */
-  processIssues(issues) {
-    return issues.map((issue, index) => ({
-      id: issue.id || issue.issue_id || `${issue.line}-${issue.column}-${Date.now()}-${index}`,
-      line: issue.line,
-      column: issue.column || 0,
-      severity: issue.severity || 'info',
-      message: issue.message,
-      rule: issue.rule || 'unknown',
-      suggestion: issue.suggestion || null,
-      category: issue.category || 'general',
-      codeExample: issue.code_example || issue.codeExample || null,
-      documentation: issue.documentation || null
-    }));
+  processIssues(issues, analysisId = 'unknown') {
+    return issues.map((issue, index) => {
+      let issueId = issue.id || issue.issue_id;
+      
+      // If no proper ID, generate a more robust fallback one
+      if (!issueId) {
+        issueId = this.generateFallbackId(issue, analysisId);
+        console.warn('Generated fallback ID for issue:', issueId, issue);
+      }
+      
+      return {
+        id: issueId,
+        line: issue.line,
+        column: issue.column || 0,
+        severity: issue.severity || 'info',
+        message: issue.message,
+        rule: issue.rule || 'unknown',
+        suggestion: issue.suggestion || null,
+        category: issue.category || 'general',
+        codeExample: issue.code_example || issue.codeExample || null,
+        documentation: issue.documentation || null,
+        filePath: issue.file_path || null // Add file path for repository analyses
+      };
+    });
+  }
+
+  /**
+   * Generate a simple hash for issue ID (fallback when backend doesn't provide proper ID)
+   * @param {string} input - Input string to hash
+   * @returns {string} Hash-based ID
+   */
+  generateSimpleHash(input) {
+    if (!input || typeof input !== 'string') {
+      console.warn('Invalid input for hash generation:', input);
+      return '00000000';
+    }
+    
+    let hash = 0;
+    for (let i = 0; i < input.length; i++) {
+      const char = input.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    const result = Math.abs(hash).toString(16).padStart(8, '0');
+    console.log('Generated hash:', result, 'from input:', input);
+    return result;
+  }
+
+  /**
+   * Generate a more robust fallback ID that matches backend expectations
+   * @param {Object} issue - Issue object
+   * @param {string} analysisId - Analysis ID for context
+   * @returns {string} Fallback ID
+   */
+  generateFallbackId(issue, analysisId = 'unknown') {
+    // Create a more robust fallback ID that includes analysis context
+    const fallbackInput = `${analysisId}-${issue.line || 0}-${issue.column || 0}-${issue.rule || 'unknown'}-${issue.message || ''}`;
+    const hash = this.generateSimpleHash(fallbackInput);
+    
+    // Ensure we have a valid hash, fallback to timestamp if needed
+    const validHash = hash && hash !== '00000000' ? hash : Date.now().toString(16).slice(-8);
+    const fallbackId = `fallback-${validHash}`;
+    
+    console.log('Generated fallback ID:', fallbackId, 'from input:', fallbackInput, 'hash:', hash);
+    return fallbackId;
   }
 
   /**

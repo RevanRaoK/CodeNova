@@ -194,6 +194,22 @@ class FileUploadService:
                 detail=f"Failed to save batch: {str(e)}"
             )
         
+        # Send immediate upload completion notification
+        from app.services.notification_service import NotificationService
+        notification_service = NotificationService()
+        
+        try:
+            await notification_service.send_upload_completion_notification(
+                user_id=user_id,
+                batch_id=batch_id,
+                uploaded_files=len(batch_files),
+                total_files=len(files),
+                failed_files=len(validation_errors)
+            )
+        except Exception as e:
+            # Don't fail the upload if notification fails
+            logger.warning(f"Failed to send upload notification: {e}")
+        
         # Queue analysis jobs for each file (will be implemented in background worker)
         # This will be handled by the background worker service
         

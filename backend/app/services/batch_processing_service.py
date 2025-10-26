@@ -306,12 +306,15 @@ class BatchProcessingService:
         file_results = []
         for batch_file in batch.batch_files:
             if batch_file.status == FileStatus.COMPLETED and batch_file.has_analysis_results:
+                # Use the stored analysis results (keep it simple for now)
+                issues_with_proper_ids = batch_file.analysis_results or []
+                
                 file_result = {
                     "filename": batch_file.filename,
                     "language": batch_file.language,
                     "file_size_kb": batch_file.file_size_kb,
                     "lines_count": batch_file.lines_count,
-                    "issues": batch_file.analysis_results,
+                    "issues": issues_with_proper_ids,
                     "metrics": batch_file.analysis_metrics,
                     "summary": batch_file.analysis_summary,
                     "issues_count": batch_file.issues_count,

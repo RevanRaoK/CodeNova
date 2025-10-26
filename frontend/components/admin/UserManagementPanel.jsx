@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Search, Filter, Edit, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Filter, Edit, ChevronDown, ChevronUp, Users } from 'lucide-react';
 import adminService from '../../services/adminService.js';
 import ConfirmationDialog from '../ConfirmationDialog.jsx';
 import UserEditModal from './UserEditModal.jsx';
+import EmptyState from '../EmptyState.jsx';
+import { toast } from '../../utils/toastNotifications.js';
 
 /**
  * User management panel for admin dashboard
@@ -31,6 +33,9 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
      }, [currentPage, searchTerm, selectedTeam, sortBy, sortOrder]);
 
      const loadUsers = async () => {
+          const previousUsers = users;
+          const previousTotalPages = totalPages;
+
           try {
                setLoading(true);
                const response = await adminService.getAllUsers({
@@ -49,18 +54,41 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
                setTotalPages(Math.ceil((response.total || usersArray.length) / itemsPerPage));
           } catch (error) {
                console.error('Error loading users:', error);
+               
+               // Determine error type and show appropriate message
+               if (error.message?.includes('Network error')) {
+                    toast.error('Network error. Please check your connection and try again.');
+               } else if (error.message?.includes('Access denied')) {
+                    toast.error('Access denied. You need admin privileges to view users.');
+               } else if (error.message?.includes('Server error')) {
+                    toast.error('Server error. Please try again in a few moments.');
+               } else {
+                    toast.error(`Failed to load users: ${error.message || 'Unknown error'}`);
+               }
+
+               // Maintain previous state on error if we have data, otherwise show empty state
+               if (previousUsers.length > 0) {
+                    // Keep previous data to avoid jarring user experience
+                    setUsers(previousUsers);
+                    setTotalPages(previousTotalPages);
+               } else {
+                    // Set empty state only if we have no previous data
+                    setUsers([]);
+                    setTotalPages(1);
+               }
+
+               // Also call onError callback if provided
                if (onError) {
                     onError(new Error(`Failed to load users: ${error.message}`));
                }
-               // Set empty state on error
-               setUsers([]);
-               setTotalPages(1);
           } finally {
                setLoading(false);
           }
      };
 
      const loadTeams = async () => {
+          const previousTeams = teams;
+
           try {
                const response = await adminService.getAllTeams();
                console.log('Teams response:', response);
@@ -69,30 +97,64 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
                setTeams(teamsArray);
           } catch (error) {
                console.error('Failed to load teams:', error);
-               // Don't show error to user for teams loading failure, just log it
-               // Teams are optional for user management
-               setTeams([]);
+               
+               // Show a less intrusive warning since teams are optional for user management
+               if (error.message?.includes('Network error')) {
+                    toast.warning('Could not load teams due to network error. Team filtering may be limited.');
+               } else if (error.message?.includes('Access denied')) {
+                    toast.warning('Limited access to team data. Some features may be restricted.');
+               } else {
+                    console.warn('Teams loading failed, but continuing with user management');
+               }
+
+               // Maintain previous teams data if available
+               if (previousTeams.length > 0) {
+                    setTeams(previousTeams);
+               } else {
+                    setTeams([]);
+               }
           }
      };
 
      const handleRoleChange = async (userId, newRole) => {
+          const loadingToastId = toast.loading(`Updating user role to ${newRole.replace('_', ' ')}...`);
+
           try {
                await adminService.updateUserRole(userId, newRole);
+               toast.remove(loadingToastId);
+               toast.success(`User role updated to ${newRole.replace('_', ' ')}`);
+               
                if (onSuccess) {
                     onSuccess(`User role updated to ${newRole.replace('_', ' ')}`);
                }
                await loadUsers(); // Refresh the list
           } catch (error) {
                console.error('Failed to update user role:', error);
+               toast.remove(loadingToastId);
+               
+               // Show specific error messages based on error type
+               if (error.message?.includes('Access denied')) {
+                    toast.error('Access denied. You cannot update user roles.');
+               } else if (error.message?.includes('Network error')) {
+                    toast.error('Network error. Please check your connection and try again.');
+               } else if (error.message?.includes('not found')) {
+                    toast.error('User not found. They may have been deleted.');
+               } else {
+                    toast.error(`Failed to update role: ${error.message || 'Unknown error'}`);
+               }
+
                if (onError) {
                     onError(new Error(`Failed to update role: ${error.message}`));
                }
-               // Reload users to revert the UI change
+               
+               // Reload users to revert the UI change and ensure data consistency
                await loadUsers();
           }
      };
 
      const handleModalSave = async (userId, changes) => {
+          const loadingToastId = toast.loading('Updating user...');
+
           try {
                setModalLoading(true);
                
@@ -104,9 +166,19 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
                if (changes.role) {
                     try {
                          await adminService.updateUserRole(userId, changes.role);
-                         changeDescriptions.push(`role to ${changes.role}`);
+                         changeDescriptions.push(`role to ${changes.role.replace('_', ' ')}`);
                     } catch (error) {
                          console.error('Failed to update user role:', error);
+                         toast.remove(loadingToastId);
+                         
+                         if (error.message?.includes('Access denied')) {
+                              toast.error('Access denied. You cannot update user roles.');
+                         } else if (error.message?.includes('Network error')) {
+                              toast.error('Network error. Please check your connection and try again.');
+                         } else {
+                              toast.error(`Failed to update role: ${error.message || 'Unknown error'}`);
+                         }
+
                          if (onError) {
                               onError(new Error(`Failed to update role: ${error.message}`));
                          }
@@ -127,6 +199,16 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
                          }
                     } catch (error) {
                          console.error('Failed to update team assignment:', error);
+                         toast.remove(loadingToastId);
+                         
+                         if (error.message?.includes('Access denied')) {
+                              toast.error('Access denied. You cannot update team assignments.');
+                         } else if (error.message?.includes('Network error')) {
+                              toast.error('Network error. Please check your connection and try again.');
+                         } else {
+                              toast.error(`Failed to update team assignment: ${error.message || 'Unknown error'}`);
+                         }
+
                          if (onError) {
                               onError(new Error(`Failed to update team assignment: ${error.message}`));
                          }
@@ -141,6 +223,16 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
                          changeDescriptions.push(`status to ${changes.is_active ? 'active' : 'inactive'}`);
                     } catch (error) {
                          console.error('Failed to update user status:', error);
+                         toast.remove(loadingToastId);
+                         
+                         if (error.message?.includes('Access denied')) {
+                              toast.error('Access denied. You cannot update user status.');
+                         } else if (error.message?.includes('Network error')) {
+                              toast.error('Network error. Please check your connection and try again.');
+                         } else {
+                              toast.error(`Failed to update status: ${error.message || 'Unknown error'}`);
+                         }
+
                          if (onError) {
                               onError(new Error(`Failed to update status: ${error.message}`));
                          }
@@ -150,9 +242,13 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
 
                // Only show success message and close modal if no errors occurred
                if (!hasErrors) {
+                    toast.remove(loadingToastId);
+                    
                     const description = changeDescriptions.length > 0 
                          ? `User ${changeDescriptions.join(', ')}`
                          : 'User updated successfully';
+                    
+                    toast.success(description);
                     
                     if (onSuccess) {
                          onSuccess(description);
@@ -162,6 +258,9 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
                }
           } catch (error) {
                console.error('Unexpected error in handleModalSave:', error);
+               toast.remove(loadingToastId);
+               toast.error(`An unexpected error occurred: ${error.message || 'Unknown error'}`);
+               
                if (onError) {
                     onError(new Error(`Failed to update user: ${error.message}`));
                }
@@ -220,9 +319,10 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
      };
 
      return (
-          <div className="space-y-6">
+          <div className="px-4 sm:px-6 lg:px-8 py-8">
+               <div className="space-y-6">
                {/* Header with Search and Filters */}
-               <div className="bg-white rounded-lg shadow-sm border p-6">
+               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
                          <div>
                               <h2 className="text-xl font-semibold text-gray-900">User Management</h2>
@@ -281,7 +381,7 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
                </div>
 
                {/* Users Table */}
-               <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+               <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                     <div className="overflow-x-auto">
                          <table className="min-w-full divide-y divide-gray-200">
                               <thead className="bg-gray-50">
@@ -335,8 +435,16 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
                                         </tr>
                                    ) : users.length === 0 ? (
                                         <tr>
-                                             <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
-                                                  No users found
+                                             <td colSpan="6" className="px-6 py-4">
+                                                  <EmptyState
+                                                       icon={Users}
+                                                       title="No Users Found"
+                                                       description={searchTerm || selectedTeam ? 
+                                                            "No users match your current filters. Try adjusting your search criteria." :
+                                                            "No users have been created yet. Users will appear here once they sign up."
+                                                       }
+                                                       className="py-8"
+                                                  />
                                              </td>
                                         </tr>
                                    ) : (
@@ -468,6 +576,7 @@ const UserManagementPanel = ({ onError, onSuccess, currentUser }) => {
                          type={confirmDialog.type}
                     />
                )}
+               </div>
           </div>
      );
 };

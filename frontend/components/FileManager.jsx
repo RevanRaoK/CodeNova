@@ -126,7 +126,7 @@ const FileManager = () => {
 
      // Handle file upload success
      const handleUploadSuccess = (uploadedFiles) => {
-          showToast(`Successfully uploaded ${uploadedFiles.length} file(s)`, 'success');
+          // Don't show duplicate notification - FileUploadComponent already shows it
           setShowUpload(false);
           loadFiles();
      };

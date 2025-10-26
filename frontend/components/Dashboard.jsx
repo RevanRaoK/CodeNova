@@ -330,7 +330,7 @@ export function Dashboard() {
   const stats = [
     {
       name: 'Issues Found',
-      value: dashboardData?.userStats?.totalIssues || 201,
+      value: dashboardData?.userStats?.totalIssuesFound || 0,
       icon: AlertCircleIcon,
       color: 'bg-red-500',
       description: 'Total issues detected',

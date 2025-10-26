@@ -29,9 +29,6 @@ This directory contains all admin dashboard components for the CodeNova platform
   - Features: Usage trends, member performance, feedback distribution
   - Requirements: Team performance tracking
 
-- **PlatformStatsPanel.jsx** - Platform statistics and system health
-  - Features: Usage statistics, performance metrics, system health indicators
-
 ### Data Tables
 - **GlobalReviewsTable.jsx** - All code reviews across the platform
   - Features: Filtering, pagination, sorting, search

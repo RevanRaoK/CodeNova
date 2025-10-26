@@ -27,7 +27,7 @@ router = APIRouter()
 
 
 @router.post("", response_model=FeedbackResponse, status_code=status.HTTP_201_CREATED)
-def submit_feedback(
+async def submit_feedback(
     *,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -71,7 +71,7 @@ def submit_feedback(
 
 
 @router.get("/feedback/stats", response_model=FeedbackStatsResponse)
-def get_feedback_statistics(
+async def get_feedback_statistics(
     *,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -125,7 +125,7 @@ def get_feedback_statistics(
 
 
 @router.get("/feedback/history", response_model=FeedbackHistoryResponse)
-def get_user_feedback_history(
+async def get_user_feedback_history(
     *,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -177,7 +177,7 @@ def get_user_feedback_history(
 
 
 @router.post("/feedback/bulk", response_model=dict, status_code=status.HTTP_201_CREATED)
-def submit_bulk_feedback(
+async def submit_bulk_feedback(
     *,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -232,7 +232,7 @@ def submit_bulk_feedback(
 
 
 @router.get("/issue/{issue_id}", response_model=list[FeedbackResponse])
-def get_feedback_for_issue_alt(
+async def get_feedback_for_issue_alt(
     *,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -254,7 +254,7 @@ def get_feedback_for_issue_alt(
 
 
 @router.post("/feedback/{feedback_id}/validate", response_model=FeedbackResponse)
-def validate_feedback(
+async def validate_feedback(
     *,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_admin),
@@ -299,7 +299,7 @@ def validate_feedback(
 
 
 @router.get("/feedback/trends", response_model=dict)
-def get_feedback_trends(
+async def get_feedback_trends(
     *,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -332,7 +332,7 @@ def get_feedback_trends(
 
 
 @router.get("/feedback/statistics", response_model=dict)
-def get_feedback_statistics_with_timeframe(
+async def get_feedback_statistics_with_timeframe(
     *,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -388,7 +388,7 @@ def get_feedback_statistics_with_timeframe(
 
 
 @router.get("/statistics", response_model=dict)
-def get_feedback_statistics_endpoint(
+async def get_feedback_statistics_endpoint(
     *,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -443,7 +443,7 @@ def get_feedback_statistics_endpoint(
 
 # IMPORTANT: This catch-all route must be at the end to avoid matching specific routes
 @router.get("/{issue_id}", response_model=list[FeedbackResponse])
-def get_feedback_for_issue(
+async def get_feedback_for_issue(
     *,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),

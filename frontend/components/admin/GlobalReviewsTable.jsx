@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, ChevronDown, ChevronUp, Eye, Calendar, User } from 'lucide-react';
+import { Search, Filter, ChevronDown, ChevronUp, Eye, Calendar, User, FileText } from 'lucide-react';
 import adminService from '../../services/adminService.js';
+import EmptyState from '../EmptyState.jsx';
 
 /**
  * Global reviews table showing all code reviews across the platform
@@ -103,7 +104,7 @@ const GlobalReviewsTable = ({ dateRange, teamId, onError, onSuccess, currentUser
      return (
           <div className="space-y-6">
                {/* Filters */}
-               <div className="bg-white rounded-lg shadow-sm border p-6">
+               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                     <div className="flex items-center justify-between mb-4">
                          <h3 className="text-lg font-medium text-gray-900">
                               All Code Reviews ({totalReviews})
@@ -165,7 +166,7 @@ const GlobalReviewsTable = ({ dateRange, teamId, onError, onSuccess, currentUser
                </div>
 
                {/* Reviews Table */}
-               <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+               <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                     <div className="overflow-x-auto">
                          <table className="min-w-full divide-y divide-gray-200">
                               <thead className="bg-gray-50">
@@ -216,8 +217,16 @@ const GlobalReviewsTable = ({ dateRange, teamId, onError, onSuccess, currentUser
                                         </tr>
                                    ) : reviews.length === 0 ? (
                                         <tr>
-                                             <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
-                                                  No reviews found
+                                             <td colSpan="7" className="px-6 py-4">
+                                                  <EmptyState
+                                                       icon={FileText}
+                                                       title="No Reviews Found"
+                                                       description={Object.values(filters).some(f => f) || teamId ? 
+                                                            "No reviews match your current filters. Try adjusting your search criteria or date range." :
+                                                            "No code reviews have been completed yet. Reviews will appear here once users start analyzing code."
+                                                       }
+                                                       className="py-8"
+                                                  />
                                              </td>
                                         </tr>
                                    ) : (

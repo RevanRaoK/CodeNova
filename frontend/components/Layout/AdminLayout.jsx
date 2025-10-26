@@ -5,7 +5,6 @@ import {
   Users,
   BarChart3,
   Eye,
-  Settings,
   LogOut,
   Menu,
   X,
@@ -72,12 +71,6 @@ const AdminLayout = ({ children }) => {
       href: '/admin/audit',
       icon: Eye,
       description: 'System activity logs',
-    },
-    {
-      name: 'Platform Stats',
-      href: '/admin/stats',
-      icon: Settings,
-      description: 'System statistics',
     },
   ];
 

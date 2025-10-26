@@ -454,15 +454,41 @@ class AdminService {
   }
 
   /**
+   * Get feedback statistics
+   * @param {Object} options - Query options
+   * @param {string} options.teamId - Optional team ID to filter by
+   * @returns {Promise<Object>} Feedback statistics data
+   */
+  async getFeedbackStatistics(options = {}) {
+    try {
+      const params = new URLSearchParams();
+      if (options.teamId) params.append('team_id', options.teamId);
+
+      const response = await httpClient.get(`/admin/analytics/feedback-stats?${params.toString()}`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch feedback statistics:', error);
+      throw this.handleAdminError(error);
+    }
+  }
+
+  /**
    * Handle admin-specific errors
    * @param {Error} error - The error to handle
    * @returns {Error} Processed error with user-friendly message
    */
   handleAdminError(error) {
+    // Log the full error for debugging
+    console.error('Admin service error:', error);
+
     if (error.response) {
       const { status, data } = error.response;
       
       switch (status) {
+        case 400:
+          return new Error(data.detail || 'Invalid request. Please check your input.');
+        case 401:
+          return new Error('Authentication required. Please log in again.');
         case 403:
           return new Error('Access denied. Admin privileges required.');
         case 404:
@@ -471,14 +497,30 @@ class AdminService {
           return new Error(data.detail || 'Conflict occurred. Resource may already exist.');
         case 422:
           return new Error(data.detail || 'Invalid data provided.');
+        case 429:
+          return new Error('Too many requests. Please try again later.');
         case 500:
           return new Error('Server error. Please try again later.');
+        case 502:
+          return new Error('Bad gateway. The server is temporarily unavailable.');
+        case 503:
+          return new Error('Service unavailable. Please try again later.');
+        case 504:
+          return new Error('Gateway timeout. The request took too long to process.');
         default:
-          return new Error(data.detail || 'Admin operation failed.');
+          return new Error(data.detail || data.message || 'Admin operation failed.');
       }
     } else if (error.request) {
-      return new Error('Network error. Please check your connection.');
+      // Network error - no response received
+      if (error.code === 'NETWORK_ERROR' || error.message?.includes('Network Error')) {
+        return new Error('Network error. Please check your connection.');
+      } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        return new Error('Request timeout. Please try again.');
+      } else {
+        return new Error('Network error. Please check your connection.');
+      }
     } else {
+      // Something else happened
       return new Error(error.message || 'An unexpected error occurred.');
     }
   }

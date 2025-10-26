@@ -38,11 +38,77 @@ class AdminService:
         search: Optional[str] = None,
         skip: int = 0,
         limit: int = 100
-    ) -> List[User]:
+    ) -> List[Dict[str, Any]]:
         """
-        Get all users with optional filtering.
+        Get all users with optional filtering, including team information.
         
         Requirements: 3.2, 7.3 - Admin views all team members with search and filter
+        """
+        from sqlalchemy.orm import joinedload
+        
+        query = self.db.query(User).outerjoin(Team, User.team_id == Team.id)
+        
+        if team_id:
+            query = query.filter(User.team_id == team_id)
+        
+        if role:
+            query = query.filter(User.role == role)
+        
+        if is_active is not None:
+            query = query.filter(User.is_active == is_active)
+        
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.filter(
+                or_(
+                    User.email.ilike(search_pattern),
+                    User.full_name.ilike(search_pattern),
+                    User.first_name.ilike(search_pattern),
+                    User.last_name.ilike(search_pattern)
+                )
+            )
+        
+        users = query.offset(skip).limit(limit).all()
+        
+        # Convert to dict format with team information
+        result = []
+        for user in users:
+            user_dict = {
+                "id": user.id,
+                "email": user.email,
+                "full_name": user.full_name,
+                "role": user.role,
+                "is_active": user.is_active,
+                "is_verified": user.is_verified,
+                "team_id": user.team_id,
+                "created_at": user.created_at,
+                "updated_at": user.updated_at,
+                "last_login": user.last_login,
+                "team": None
+            }
+            
+            # Add team information if user has a team
+            if user.team_id:
+                team = self.db.query(Team).filter(Team.id == user.team_id).first()
+                if team:
+                    user_dict["team"] = {
+                        "id": team.id,
+                        "name": team.name
+                    }
+            
+            result.append(user_dict)
+            
+        return result
+    
+    async def get_users_count(
+        self,
+        team_id: Optional[str] = None,
+        role: Optional[UserRole] = None,
+        is_active: Optional[bool] = None,
+        search: Optional[str] = None
+    ) -> int:
+        """
+        Get total count of users with optional filtering.
         """
         query = self.db.query(User)
         
@@ -66,7 +132,7 @@ class AdminService:
                 )
             )
             
-        return query.offset(skip).limit(limit).all()
+        return query.count()
     
     async def get_user_by_id(self, user_id: int) -> Optional[User]:
         """Get a specific user by ID."""
@@ -158,10 +224,13 @@ class AdminService:
         
         Requirements: 8.2 - Admin manages teams (creating, editing, deleting team structures)
         """
+        # Use provided admin_id or default to current user
+        team_admin_id = team_data.admin_id if team_data.admin_id else admin_user_id
+        
         team = Team(
             id=str(uuid.uuid4()),
             name=team_data.name,
-            admin_id=admin_user_id,
+            admin_id=team_admin_id,
             settings=team_data.settings or {}
         )
         
@@ -169,19 +238,41 @@ class AdminService:
         self.db.commit()
         self.db.refresh(team)
         
+        # Load admin information
+        from app.models.users import User
+        admin_user = self.db.query(User).filter(User.id == team_admin_id).first()
+        if admin_user:
+            team.admin = admin_user
+        
+        # Add member count
+        member_count = self.db.query(User).filter(User.team_id == team.id).count()
+        team.member_count = member_count
+        
         # Log team creation
         self.audit_logger.log_team_action(
             admin_user_id=admin_user_id,
             team_id=team.id,
             action="create",
-            details={"team_name": team.name, "settings": team.settings}
+            details={"team_name": team.name, "team_admin_id": team_admin_id, "settings": team.settings}
         )
         
         return team
     
     async def get_all_teams(self, skip: int = 0, limit: int = 100) -> List[Team]:
-        """Get all teams."""
-        return self.db.query(Team).offset(skip).limit(limit).all()
+        """Get all teams with admin information and member count."""
+        from app.models.users import User
+        from sqlalchemy import func
+        
+        # Get teams with admin info and member count
+        teams_query = self.db.query(Team).join(User, Team.admin_id == User.id)
+        teams = teams_query.offset(skip).limit(limit).all()
+        
+        # Add member count to each team
+        for team in teams:
+            member_count = self.db.query(User).filter(User.team_id == team.id).count()
+            team.member_count = member_count
+            
+        return teams
     
     async def get_team_by_id(self, team_id: str) -> Optional[Team]:
         """Get a specific team by ID."""
@@ -195,6 +286,7 @@ class AdminService:
         
         old_name = team.name
         old_settings = team.settings
+        old_admin_id = team.admin_id
         
         changes = {}
         if team_data.name is not None and team_data.name != team.name:
@@ -204,10 +296,24 @@ class AdminService:
         if team_data.settings is not None and team_data.settings != team.settings:
             team.settings = team_data.settings
             changes["settings"] = {"old": old_settings, "new": team.settings}
+            
+        if team_data.admin_id is not None and team_data.admin_id != team.admin_id:
+            team.admin_id = team_data.admin_id
+            changes["admin_id"] = {"old": old_admin_id, "new": team.admin_id}
         
         team.updated_at = datetime.utcnow()
         self.db.commit()
         self.db.refresh(team)
+        
+        # Load admin information
+        from app.models.users import User
+        admin_user = self.db.query(User).filter(User.id == team.admin_id).first()
+        if admin_user:
+            team.admin = admin_user
+        
+        # Add member count
+        member_count = self.db.query(User).filter(User.team_id == team.id).count()
+        team.member_count = member_count
         
         # Log team update
         if changes:
@@ -415,59 +521,78 @@ class AdminService:
     
     # Platform-wide Analytics
     
-    async def get_platform_analytics(self) -> Dict[str, Any]:
+    async def get_platform_analytics(self, team_id: Optional[str] = None, date_range: str = "30d") -> Dict[str, Any]:
         """
-        Get platform-wide analytics for admin dashboard.
+        Get platform-wide analytics for admin dashboard with optional team filtering.
         
         Requirements: 3.1 - Admin accesses admin dashboard with user management interface
+        Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6 - Team filtering support
         """
-        total_users = self.db.query(func.count(User.id)).scalar() or 0
-        active_users = self.db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
-        total_teams = self.db.query(func.count(Team.id)).scalar() or 0
-        total_analyses = self.db.query(func.count(DirectAnalysis.id)).scalar() or 0
-        total_feedback = self.db.query(func.count(FeedbackRecord.id)).scalar() or 0
+        # Parse date range
+        days_map = {"7d": 7, "30d": 30, "90d": 90}
+        days = days_map.get(date_range, 30)
+        date_filter = datetime.utcnow() - timedelta(days=days)
         
-        # Calculate total issues
+        # Base queries with optional team filtering
+        user_query = self.db.query(User)
+        analysis_query = self.db.query(DirectAnalysis)
+        feedback_query = self.db.query(FeedbackRecord)
+        
+        if team_id:
+            # Filter by team
+            user_query = user_query.filter(User.team_id == team_id)
+            analysis_query = analysis_query.join(User).filter(User.team_id == team_id)
+            feedback_query = feedback_query.join(User).filter(User.team_id == team_id)
+            
+            # For team filtering, count only that team
+            total_teams = 1 if self.db.query(Team).filter(Team.id == team_id).first() else 0
+        else:
+            # Count all teams when no filter
+            total_teams = self.db.query(func.count(Team.id)).scalar() or 0
+        
+        total_users = user_query.count() or 0
+        active_users = user_query.filter(User.is_active == True).count() or 0
+        total_analyses = analysis_query.count() or 0
+        total_feedback = feedback_query.count() or 0
+        
+        # Calculate total issues with team filtering
         from app.models.feedback import Issue
-        total_issues = self.db.query(func.count(Issue.id)).scalar() or 0
+        issue_query = self.db.query(Issue)
+        if team_id:
+            issue_query = issue_query.join(DirectAnalysis).join(User).filter(User.team_id == team_id)
+        total_issues = issue_query.count() or 0
         
         # Calculate average issues per review
         avg_issues_per_review = (total_issues / total_analyses) if total_analyses > 0 else 0.0
         
-        # Calculate feedback participation rate
-        accepted_feedback = self.db.query(func.count(FeedbackRecord.id)).filter(
-            FeedbackRecord.feedback_type == "accept"
-        ).scalar() or 0
+        # Calculate feedback participation rate with team filtering
+        accepted_feedback_query = feedback_query.filter(FeedbackRecord.feedback_type == "accept")
+        accepted_feedback = accepted_feedback_query.count() or 0
         feedback_participation_rate = (accepted_feedback / total_feedback) if total_feedback > 0 else 0.0
         
-        # User role distribution
+        # User role distribution with team filtering
         role_distribution = {}
         for role in UserRole:
-            count = self.db.query(func.count(User.id)).filter(User.role == role).scalar() or 0
+            count = user_query.filter(User.role == role).count() or 0
             role_distribution[role.value] = count
         
-        # Recent activity (last 30 days)
-        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-        active_users_30d = self.db.query(func.count(func.distinct(DirectAnalysis.user_id))).filter(
-            DirectAnalysis.created_at >= thirty_days_ago
-        ).scalar() or 0
+        # Recent activity within date range and team filter
+        active_users_range = analysis_query.filter(
+            DirectAnalysis.created_at >= date_filter
+        ).with_entities(func.count(func.distinct(DirectAnalysis.user_id))).scalar() or 0
         
-        recent_users = self.db.query(func.count(User.id)).filter(
-            User.created_at >= thirty_days_ago
-        ).scalar() or 0
+        recent_users = user_query.filter(User.created_at >= date_filter).count() or 0
+        recent_analyses = analysis_query.filter(DirectAnalysis.created_at >= date_filter).count() or 0
         
-        recent_analyses = self.db.query(func.count(DirectAnalysis.id)).filter(
-            DirectAnalysis.created_at >= thirty_days_ago
-        ).scalar() or 0
-        
-        # Get reviews completed today
+        # Get reviews completed today with team filtering
         today = datetime.utcnow().date()
-        reviews_today = self.db.query(func.count(DirectAnalysis.id)).filter(
+        reviews_today_query = analysis_query.filter(
             and_(
                 DirectAnalysis.status == "completed",
                 func.date(DirectAnalysis.completed_at) == today
             )
-        ).scalar() or 0
+        )
+        reviews_today = reviews_today_query.count() or 0
         
         return {
             "total_users": total_users,
@@ -480,12 +605,12 @@ class AdminService:
             "avg_issues_per_review": round(avg_issues_per_review, 2),
             "feedback_acceptance_rate": round(feedback_participation_rate, 2),  # Rename to match schema
             "reviews_today": reviews_today,  # Add reviews completed today
-            "active_users_30d": active_users_30d,
+            "active_users_30d": active_users_range,
             "role_distribution": role_distribution,
             "recent_activity": {
                 "new_users_30d": recent_users,
                 "new_analyses_30d": recent_analyses,
-                "active_users_30d": active_users_30d
+                "active_users_30d": active_users_range
             },
             "top_languages": [],  # Add missing field
             "growth_metrics": {}   # Add missing field

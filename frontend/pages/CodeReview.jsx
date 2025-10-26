@@ -335,11 +335,12 @@ export function CodeReview() {
       const status = await analysisService.getBatchAnalysisStatus(batchId);
       
       if (status.status === 'completed' || status.status === 'partial') {
-        showSuccess(`Analysis complete! ${status.successful_files} file(s) analyzed.`, {
-          duration: 10000
+        const fileText = status.successful_files === 1 ? 'file' : 'files';
+        showSuccess(`Code analysis complete! ${status.successful_files} ${fileText} analyzed successfully.`, {
+          duration: 5000
         });
       } else if (status.status === 'failed') {
-        showError('Analysis failed.');
+        showError('Code analysis failed. Please try again.');
       } else {
         // Still processing, check again
         setTimeout(() => checkBatchCompletion(batchId, attempt + 1), 2000);
@@ -358,7 +359,8 @@ export function CodeReview() {
       setBatchProcessingComplete(true);
       setShowBatchProgress(false);
       
-      showSuccess(`Batch processing completed! ${results.successful_files} files analyzed.`, {
+      const fileText = results.successful_files === 1 ? 'file' : 'files';
+      showSuccess(`Code analysis complete! ${results.successful_files} ${fileText} ready for review.`, {
         title: 'Analysis Complete'
       });
     } catch (error) {

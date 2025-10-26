@@ -31,9 +31,7 @@ vi.mock('../../admin/AuditLogPanel.jsx', () => ({
      default: () => <div data-testid="audit-log-panel">Audit Logs</div>
 }));
 
-vi.mock('../../admin/PlatformStatsPanel.jsx', () => ({
-     default: () => <div data-testid="platform-stats-panel">Platform Stats</div>
-}));
+
 
 vi.mock('../../ConfirmationDialog.jsx', () => ({
      default: () => <div data-testid="confirmation-dialog">Confirmation Dialog</div>
@@ -127,7 +125,6 @@ describe('AdminDashboard', () => {
                expect(screen.getByText('Team Management')).toBeInTheDocument();
                expect(screen.getByText('Team Analytics')).toBeInTheDocument();
                expect(screen.getByText('Audit Logs')).toBeInTheDocument();
-               expect(screen.getByText('Platform Stats')).toBeInTheDocument();
           });
 
           it('should switch between tabs', () => {
@@ -147,10 +144,6 @@ describe('AdminDashboard', () => {
                // Click on audit tab
                fireEvent.click(screen.getByText('Audit Logs'));
                expect(screen.getByTestId('audit-log-panel')).toBeInTheDocument();
-
-               // Click on stats tab
-               fireEvent.click(screen.getByText('Platform Stats'));
-               expect(screen.getByTestId('platform-stats-panel')).toBeInTheDocument();
           });
 
           it('should highlight active tab', () => {

@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, Users, Settings, Search } from 'lucide-react';
 import adminService from '../../services/adminService.js';
 import ConfirmationDialog from '../ConfirmationDialog.jsx';
+import EmptyState from '../EmptyState.jsx';
+import { toast } from '../../utils/toastNotifications.js';
 
 /**
  * Team management panel for admin dashboard
@@ -26,6 +28,8 @@ const TeamManagementPanel = ({ onError, onSuccess, currentUser }) => {
      }, []);
 
      const loadTeams = async () => {
+          const previousTeams = teams;
+
           try {
                setLoading(true);
                const response = await adminService.getAllTeams();
@@ -35,7 +39,28 @@ const TeamManagementPanel = ({ onError, onSuccess, currentUser }) => {
                setTeams(teamsArray);
           } catch (error) {
                console.error('Error loading teams:', error);
-               onError(error);
+               
+               // Show specific error messages based on error type
+               if (error.message?.includes('Network error')) {
+                    toast.error('Network error. Please check your connection and try again.');
+               } else if (error.message?.includes('Access denied')) {
+                    toast.error('Access denied. You need admin privileges to view teams.');
+               } else if (error.message?.includes('Server error')) {
+                    toast.error('Server error. Please try again in a few moments.');
+               } else {
+                    toast.error(`Failed to load teams: ${error.message || 'Unknown error'}`);
+               }
+
+               // Maintain previous state on error if we have data
+               if (previousTeams.length > 0) {
+                    setTeams(previousTeams);
+               } else {
+                    setTeams([]);
+               }
+
+               if (onError) {
+                    onError(error);
+               }
           } finally {
                setLoading(false);
           }
@@ -43,6 +68,8 @@ const TeamManagementPanel = ({ onError, onSuccess, currentUser }) => {
 
      const handleCreateTeam = async (e) => {
           e.preventDefault();
+          const loadingToastId = toast.loading('Creating team...');
+
           try {
                // Convert camelCase to snake_case for backend
                const teamData = {
@@ -51,17 +78,44 @@ const TeamManagementPanel = ({ onError, onSuccess, currentUser }) => {
                     settings: formData.settings || {}
                };
                await adminService.createTeam(teamData);
-               onSuccess('Team created successfully');
+               
+               toast.remove(loadingToastId);
+               toast.success(`Team "${formData.name}" created successfully`);
+               
+               if (onSuccess) {
+                    onSuccess('Team created successfully');
+               }
+               
                setShowCreateForm(false);
                setFormData({ name: '', adminId: '', settings: {} });
                loadTeams();
           } catch (error) {
-               onError(error);
+               console.error('Failed to create team:', error);
+               toast.remove(loadingToastId);
+               
+               // Show specific error messages based on error type
+               if (error.message?.includes('Access denied')) {
+                    toast.error('Access denied. You cannot create teams.');
+               } else if (error.message?.includes('Network error')) {
+                    toast.error('Network error. Please check your connection and try again.');
+               } else if (error.message?.includes('already exist')) {
+                    toast.error('A team with this name already exists. Please choose a different name.');
+               } else if (error.message?.includes('Invalid data')) {
+                    toast.error('Invalid team data. Please check your input and try again.');
+               } else {
+                    toast.error(`Failed to create team: ${error.message || 'Unknown error'}`);
+               }
+
+               if (onError) {
+                    onError(error);
+               }
           }
      };
 
      const handleUpdateTeam = async (e) => {
           e.preventDefault();
+          const loadingToastId = toast.loading('Updating team...');
+
           try {
                // Convert camelCase to snake_case for backend
                const teamData = {
@@ -70,22 +124,78 @@ const TeamManagementPanel = ({ onError, onSuccess, currentUser }) => {
                     settings: formData.settings || {}
                };
                await adminService.updateTeam(editingTeam.id, teamData);
-               onSuccess('Team updated successfully');
+               
+               toast.remove(loadingToastId);
+               toast.success(`Team "${formData.name}" updated successfully`);
+               
+               if (onSuccess) {
+                    onSuccess('Team updated successfully');
+               }
+               
                setEditingTeam(null);
                setFormData({ name: '', adminId: '', settings: {} });
                loadTeams();
           } catch (error) {
-               onError(error);
+               console.error('Failed to update team:', error);
+               toast.remove(loadingToastId);
+               
+               // Show specific error messages based on error type
+               if (error.message?.includes('Access denied')) {
+                    toast.error('Access denied. You cannot update teams.');
+               } else if (error.message?.includes('Network error')) {
+                    toast.error('Network error. Please check your connection and try again.');
+               } else if (error.message?.includes('not found')) {
+                    toast.error('Team not found. It may have been deleted.');
+               } else if (error.message?.includes('already exist')) {
+                    toast.error('A team with this name already exists. Please choose a different name.');
+               } else if (error.message?.includes('Invalid data')) {
+                    toast.error('Invalid team data. Please check your input and try again.');
+               } else {
+                    toast.error(`Failed to update team: ${error.message || 'Unknown error'}`);
+               }
+
+               if (onError) {
+                    onError(error);
+               }
           }
      };
 
      const handleDeleteTeam = async (teamId) => {
+          const teamToDelete = teams.find(t => t.id === teamId);
+          const teamName = teamToDelete?.name || 'Unknown Team';
+          const loadingToastId = toast.loading(`Deleting team "${teamName}"...`);
+
           try {
                await adminService.deleteTeam(teamId);
-               onSuccess('Team deleted successfully');
+               
+               toast.remove(loadingToastId);
+               toast.success(`Team "${teamName}" deleted successfully`);
+               
+               if (onSuccess) {
+                    onSuccess('Team deleted successfully');
+               }
+               
                loadTeams();
           } catch (error) {
-               onError(error);
+               console.error('Failed to delete team:', error);
+               toast.remove(loadingToastId);
+               
+               // Show specific error messages based on error type
+               if (error.message?.includes('Access denied')) {
+                    toast.error('Access denied. You cannot delete teams.');
+               } else if (error.message?.includes('Network error')) {
+                    toast.error('Network error. Please check your connection and try again.');
+               } else if (error.message?.includes('not found')) {
+                    toast.error('Team not found. It may have already been deleted.');
+               } else if (error.message?.includes('has members')) {
+                    toast.error('Cannot delete team with members. Please remove all members first.');
+               } else {
+                    toast.error(`Failed to delete team: ${error.message || 'Unknown error'}`);
+               }
+
+               if (onError) {
+                    onError(error);
+               }
           }
      };
 
@@ -130,9 +240,10 @@ const TeamManagementPanel = ({ onError, onSuccess, currentUser }) => {
      };
 
      return (
-          <div className="space-y-6">
+          <div className="px-4 sm:px-6 lg:px-8 py-8">
+               <div className="space-y-6">
                {/* Header */}
-               <div className="bg-white rounded-lg shadow-sm border p-6">
+               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
                          <div>
                               <h2 className="text-xl font-semibold text-gray-900">Team Management</h2>
@@ -165,7 +276,7 @@ const TeamManagementPanel = ({ onError, onSuccess, currentUser }) => {
 
                {/* Create/Edit Form */}
                {(showCreateForm || editingTeam) && (
-                    <div className="bg-white rounded-lg shadow-sm border p-6">
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                          <h3 className="text-lg font-medium text-gray-900 mb-4">
                               {editingTeam ? 'Edit Team' : 'Create New Team'}
                          </h3>
@@ -211,24 +322,21 @@ const TeamManagementPanel = ({ onError, onSuccess, currentUser }) => {
                               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                          </div>
                     ) : filteredTeams.length === 0 ? (
-                         <div className="col-span-full text-center py-12">
-                              <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                              <h3 className="text-lg font-medium text-gray-900 mb-2">No teams found</h3>
-                              <p className="text-gray-600 mb-4">
-                                   {searchTerm ? 'No teams match your search criteria.' : 'Get started by creating your first team.'}
-                              </p>
-                              {!searchTerm && (
-                                   <button
-                                        onClick={() => setShowCreateForm(true)}
-                                        className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
-                                   >
-                                        Create Team
-                                   </button>
-                              )}
+                         <div className="col-span-full">
+                              <EmptyState
+                                   icon={Users}
+                                   title="No Teams Found"
+                                   description={searchTerm ? 
+                                        'No teams match your search criteria. Try adjusting your search term.' : 
+                                        'No teams have been created yet. Get started by creating your first team.'
+                                   }
+                                   actionText={!searchTerm ? "Create Team" : undefined}
+                                   onAction={!searchTerm ? () => setShowCreateForm(true) : undefined}
+                              />
                          </div>
                     ) : (
                          filteredTeams.map((team) => (
-                              <div key={team.id} className="bg-white rounded-lg shadow-sm border p-6">
+                              <div key={team.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                    <div className="flex items-start justify-between mb-4">
                                         <div>
                                              <h3 className="text-lg font-medium text-gray-900">{team.name}</h3>
@@ -300,6 +408,7 @@ const TeamManagementPanel = ({ onError, onSuccess, currentUser }) => {
                          type={confirmDialog.type}
                     />
                )}
+               </div>
           </div>
      );
 };

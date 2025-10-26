@@ -42,6 +42,17 @@ class TeamUpdate(BaseModel):
         return v.strip() if v else v
 
 
+class AdminInfo(BaseModel):
+    """Schema for admin information in team response."""
+    id: int
+    full_name: Optional[str] = None
+    username: Optional[str] = None
+    email: str
+    
+    class Config:
+        from_attributes = True
+
+
 class TeamResponse(TeamBase):
     """Schema for team response."""
     id: str
@@ -49,6 +60,7 @@ class TeamResponse(TeamBase):
     created_at: datetime
     updated_at: datetime
     member_count: Optional[int] = 0
+    admin: Optional[AdminInfo] = None
     
     class Config:
         from_attributes = True

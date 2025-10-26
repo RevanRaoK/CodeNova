@@ -165,6 +165,44 @@ class NotificationService:
         except Exception as e:
             logger.error(f"Failed to send security update notification: {e}")
     
+    async def send_upload_completion_notification(
+        self, 
+        user_id: int, 
+        batch_id: str, 
+        uploaded_files: int, 
+        total_files: int, 
+        failed_files: int = 0
+    ):
+        """Send real-time notification for file upload completion."""
+        try:
+            # Create appropriate message based on upload results
+            if failed_files == 0:
+                message = f"Successfully uploaded {uploaded_files} file{'s' if uploaded_files != 1 else ''}"
+                notification_type = "upload_success"
+            elif uploaded_files > 0:
+                message = f"Uploaded {uploaded_files} of {total_files} files ({failed_files} failed)"
+                notification_type = "upload_partial"
+            else:
+                message = f"Upload failed for all {total_files} files"
+                notification_type = "upload_failed"
+            
+            notification_data = {
+                "type": notification_type,
+                "user_id": user_id,
+                "batch_id": batch_id,
+                "uploaded_files": uploaded_files,
+                "total_files": total_files,
+                "failed_files": failed_files,
+                "timestamp": datetime.utcnow().isoformat(),
+                "message": message
+            }
+            
+            logger.info(f"Upload completion notification for user {user_id}: {json.dumps(notification_data)}")
+            await self._broadcast_notification(notification_data)
+            
+        except Exception as e:
+            logger.error(f"Failed to send upload completion notification: {e}")
+
     async def _broadcast_notification(self, notification_data: dict):
         """Broadcast notification to all channels."""
         # This is a placeholder for actual notification broadcasting

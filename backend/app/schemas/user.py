@@ -33,6 +33,10 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+class TeamInfo(BaseModel):
+    id: str
+    name: str
+
 class UserInDB(UserBase):
     id: int
     is_active: bool
@@ -47,7 +51,7 @@ class UserInDB(UserBase):
         from_attributes = True
 
 class UserResponse(UserInDB):
-    pass
+    team: Optional[TeamInfo] = None
 
 class Token(BaseModel):
     access_token: str

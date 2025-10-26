@@ -23,5 +23,8 @@ class Team(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
+    # Relationships
+    admin = relationship("User", foreign_keys=[admin_id], lazy="select")
+
     def __repr__(self):
         return f"<Team(id={self.id}, name={self.name}, admin_id={self.admin_id})>"

@@ -175,7 +175,7 @@ class TestFeedbackStatisticsEndpoint:
     def test_get_feedback_statistics_success(self, client, admin_user, sample_feedback_data):
         """Test successful feedback statistics retrieval."""
         # Create access token
-        token = create_access_token(data={"sub": admin_user.email})
+        token = create_access_token(data={"sub": str(admin_user.id), "email": admin_user.email, "role": admin_user.role.value})
         headers = {"Authorization": f"Bearer {token}"}
         
         # Make request
@@ -209,7 +209,7 @@ class TestFeedbackStatisticsEndpoint:
     
     def test_get_feedback_statistics_with_team_filter(self, client, admin_user, sample_feedback_data):
         """Test feedback statistics with team filtering."""
-        token = create_access_token(data={"sub": admin_user.email})
+        token = create_access_token(data={"sub": str(admin_user.id), "email": admin_user.email, "role": admin_user.role.value})
         headers = {"Authorization": f"Bearer {token}"}
         
         team_id = sample_feedback_data["team"].id
@@ -227,7 +227,7 @@ class TestFeedbackStatisticsEndpoint:
     
     def test_get_feedback_statistics_empty_data(self, client, admin_user):
         """Test feedback statistics with no data."""
-        token = create_access_token(data={"sub": admin_user.email})
+        token = create_access_token(data={"sub": str(admin_user.id), "email": admin_user.email, "role": admin_user.role.value})
         headers = {"Authorization": f"Bearer {token}"}
         
         response = client.get("/api/v1/admin/analytics/feedback-stats", headers=headers)
@@ -249,7 +249,7 @@ class TestFeedbackStatisticsEndpoint:
     
     def test_get_feedback_statistics_nonexistent_team(self, client, admin_user):
         """Test feedback statistics with nonexistent team."""
-        token = create_access_token(data={"sub": admin_user.email})
+        token = create_access_token(data={"sub": str(admin_user.id), "email": admin_user.email, "role": admin_user.role.value})
         headers = {"Authorization": f"Bearer {token}"}
         
         response = client.get(
@@ -283,7 +283,7 @@ class TestFeedbackStatisticsEndpoint:
             db.commit()
             db.refresh(user)
             
-            token = create_access_token(data={"sub": user.email})
+            token = create_access_token(data={"sub": str(user.id), "email": user.email, "role": user.role.value})
             headers = {"Authorization": f"Bearer {token}"}
             
             response = client.get("/api/v1/admin/analytics/feedback-stats", headers=headers)

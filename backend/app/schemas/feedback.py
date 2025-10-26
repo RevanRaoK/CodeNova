@@ -70,15 +70,25 @@ class FeedbackSubmissionRequest(BaseModel):
     @field_validator('issue_id')
     @classmethod
     def validate_issue_id(cls, v):
-        """Validate issue ID format - must be 64-character hexadecimal string (SHA-256)."""
+        """Validate issue ID format."""
         if not v:
             raise ValueError("Issue ID is required")
         
-        # Check if it's a valid 64-character hexadecimal string (SHA-256 hash)
-        if not re.match(r'^[a-fA-F0-9]{64}$', v):
-            raise ValueError("Issue ID must be a 64-character hexadecimal string")
+        # Allow various issue ID formats:
+        # - Simple format: issue-1, issue-123, etc.
+        # - UUID format: 550e8400-e29b-41d4-a716-446655440000
+        # - SHA-256 hash format: 64-character hexadecimal string
+        # - Custom format: any alphanumeric string with hyphens/underscores
         
-        return v.lower()  # Normalize to lowercase
+        # Basic validation: must be non-empty string with valid characters
+        if not re.match(r'^[a-zA-Z0-9_-]+$', v):
+            raise ValueError("Issue ID must contain only alphanumeric characters, hyphens, and underscores")
+        
+        # Length validation: between 1 and 128 characters
+        if len(v) < 1 or len(v) > 128:
+            raise ValueError("Issue ID must be between 1 and 128 characters long")
+        
+        return v
     
     @field_validator('feedback_comment')
     @classmethod
@@ -343,13 +353,13 @@ class FeedbackPermissionRequest(BaseModel):
         
         # For feedback-related operations, validate issue ID format
         if self.operation in ['submit_feedback', 'view_feedback'] and self.resource_id:
-            if not re.match(r'^[a-fA-F0-9]{64}$', self.resource_id):
-                raise ValueError("Resource ID must be a valid 64-character hexadecimal string for feedback operations")
+            if not re.match(r'^[a-zA-Z0-9_-]+$', self.resource_id):
+                raise ValueError("Resource ID must be a valid issue ID (alphanumeric with hyphens/underscores)")
         
-        # For validation operations, allow numeric feedback IDs
+        # For validation operations, allow numeric feedback IDs or issue IDs
         elif self.operation in ['validate_feedback', 'manage_feedback'] and self.resource_id:
-            if not (self.resource_id.isdigit() or re.match(r'^[a-fA-F0-9]{64}$', self.resource_id)):
-                raise ValueError("Resource ID must be a numeric feedback ID or 64-character issue ID")
+            if not (self.resource_id.isdigit() or re.match(r'^[a-zA-Z0-9_-]+$', self.resource_id)):
+                raise ValueError("Resource ID must be a numeric feedback ID or valid issue ID")
         
         return self
 

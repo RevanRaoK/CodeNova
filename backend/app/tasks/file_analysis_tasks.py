@@ -534,16 +534,16 @@ async def analyze_repository_files(
                     language_breakdown[language] = language_breakdown.get(language, 0) + 1
                     
                     # Analyze with AI service
-                    analysis_result = ai_service.get_review_for_code_with_ast(
+                    analysis_result = ai_service.analyze_code(
                         code=content,
                         language=language,
-                        analysis_id=str(analysis.id)
+                        filename=file_info['path']
                     )
                     
                     # Extract issues and suggestions from AI result
-                    # The result is a list of suggestions/issues
-                    if analysis_result:
-                        for item in analysis_result:
+                    # The result is a dictionary with 'issues' key
+                    if analysis_result and 'issues' in analysis_result:
+                        for item in analysis_result['issues']:
                             # Add file path to each item
                             item['file'] = file_info['path']
                             

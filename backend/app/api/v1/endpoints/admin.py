@@ -24,11 +24,14 @@ router = APIRouter()
 
 # User Management Endpoints
 
-@router.get("/users", response_model=List[UserResponse])
+@router.get("/users")
 async def get_all_users(
     team_id: Optional[str] = Query(None, description="Filter by team ID"),
-    skip: int = Query(0, ge=0, description="Number of users to skip"),
+    page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(100, ge=1, le=1000, description="Number of users to return"),
+    search: Optional[str] = Query(None, description="Search term"),
+    sort_by: Optional[str] = Query("created_at", description="Sort field"),
+    sort_order: Optional[str] = Query("desc", description="Sort order"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_or_team_lead)
 ):
@@ -46,8 +49,26 @@ async def get_all_users(
             detail="Team leads can only view their own team members"
         )
     
-    users = await admin_service.get_all_users(team_id=team_id, skip=skip, limit=limit)
-    return users
+    # Calculate skip from page
+    skip = (page - 1) * limit
+    
+    users = await admin_service.get_all_users(
+        team_id=team_id, 
+        skip=skip, 
+        limit=limit,
+        search=search
+    )
+    
+    # Get total count for pagination
+    total_users = await admin_service.get_users_count(team_id=team_id, search=search)
+    
+    return {
+        "users": users,
+        "total": total_users,
+        "page": page,
+        "limit": limit,
+        "total_pages": (total_users + limit - 1) // limit
+    }
 
 
 @router.get("/users/{user_id}", response_model=UserResponse)
@@ -188,7 +209,7 @@ async def create_team(
     return team
 
 
-@router.get("/teams", response_model=List[TeamResponse])
+@router.get("/teams")
 async def get_all_teams(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -203,7 +224,13 @@ async def get_all_teams(
     if current_user.role == UserRole.TEAM_LEAD:
         teams = [team for team in teams if team.admin_id == current_user.id]
     
-    return teams
+    # Return in the format expected by frontend
+    return {
+        "teams": teams,
+        "total": len(teams),
+        "page": skip // limit + 1 if limit > 0 else 1,
+        "limit": limit
+    }
 
 
 @router.get("/teams/{team_id}", response_model=TeamResponse)
@@ -328,16 +355,19 @@ async def get_dashboard_metrics(
 
 @router.get("/analytics/platform", response_model=PlatformAnalytics)
 async def get_platform_analytics(
+    team_id: Optional[str] = Query(None, description="Filter by team ID (null for all users)"),
+    date_range: Optional[str] = Query("30d", description="Date range (7d, 30d, 90d)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
     """
-    Get platform-wide analytics.
+    Get platform-wide analytics with optional team filtering.
     
     Requirements: 3.1 - Admin accesses admin dashboard with user management interface
+    Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6 - Team filtering support
     """
     admin_service = AdminService(db)
-    analytics = await admin_service.get_platform_analytics()
+    analytics = await admin_service.get_platform_analytics(team_id=team_id, date_range=date_range)
     return analytics
 
 

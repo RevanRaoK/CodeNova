@@ -1,0 +1,469 @@
+{
+  "timestamp": "2025-10-24T10:54:14.141716",
+  "total_tests": 30,
+  "passed_tests": 30,
+  "results": [
+    {
+      "test": "Team Count Accuracy",
+      "passed": true,
+      "message": "Service returned 9 teams, database has 9 teams",
+      "timestamp": "2025-10-24T10:54:12.615388",
+      "details": {
+        "service_count": 9,
+        "database_count": 9,
+        "teams_from_service": [
+          {
+            "id": "3006e65b-02ef-43df-8b0e-0b071669857b",
+            "name": "Test Team"
+          },
+          {
+            "id": "90943abc-4db4-4f8e-9495-d1b01c594122",
+            "name": "CodeNova - Team 537"
+          },
+          {
+            "id": "e52aa7ce-40d2-4dd4-aa0a-3d8250bf63ca",
+            "name": "CodeNova - Team 537"
+          },
+          {
+            "id": "e7a2f1c9-303f-437f-8fb4-6c1412ddd844",
+            "name": "CodeNova - Team 537"
+          },
+          {
+            "id": "16a04554-fcdd-45c1-b506-975b79b0f81c",
+            "name": "CodeNova - Team 537"
+          },
+          {
+            "id": "549adde6-01ba-4478-b0b5-8e0166c1060b",
+            "name": "CodeNova - Team 537"
+          },
+          {
+            "id": "421d7ba2-1452-4d5c-b613-0f2903c75ed2",
+            "name": "CodeNova - Team 538"
+          },
+          {
+            "id": "ad55f035-245a-46e8-9c51-0e90bb285881",
+            "name": "Test Team Alpha"
+          },
+          {
+            "id": "603f737c-b84f-4ba3-b195-12cf9994d61c",
+            "name": "Test Team Beta"
+          }
+        ],
+        "teams_from_db": [
+          {
+            "id": "3006e65b-02ef-43df-8b0e-0b071669857b",
+            "name": "Test Team"
+          },
+          {
+            "id": "90943abc-4db4-4f8e-9495-d1b01c594122",
+            "name": "CodeNova - Team 537"
+          },
+          {
+            "id": "e52aa7ce-40d2-4dd4-aa0a-3d8250bf63ca",
+            "name": "CodeNova - Team 537"
+          },
+          {
+            "id": "e7a2f1c9-303f-437f-8fb4-6c1412ddd844",
+            "name": "CodeNova - Team 537"
+          },
+          {
+            "id": "16a04554-fcdd-45c1-b506-975b79b0f81c",
+            "name": "CodeNova - Team 537"
+          },
+          {
+            "id": "549adde6-01ba-4478-b0b5-8e0166c1060b",
+            "name": "CodeNova - Team 537"
+          },
+          {
+            "id": "421d7ba2-1452-4d5c-b613-0f2903c75ed2",
+            "name": "CodeNova - Team 538"
+          },
+          {
+            "id": "ad55f035-245a-46e8-9c51-0e90bb285881",
+            "name": "Test Team Alpha"
+          },
+          {
+            "id": "603f737c-b84f-4ba3-b195-12cf9994d61c",
+            "name": "Test Team Beta"
+          }
+        ]
+      }
+    },
+    {
+      "test": "Member Count Accuracy - Team Test Team",
+      "passed": true,
+      "message": "Team reports 4 members, database has 4",
+      "timestamp": "2025-10-24T10:54:12.667644",
+      "details": {
+        "team_id": "3006e65b-02ef-43df-8b0e-0b071669857b",
+        "team_name": "Test Team",
+        "reported_count": 4,
+        "actual_count": 4
+      }
+    },
+    {
+      "test": "Member Count Accuracy - Team CodeNova - Team 537",
+      "passed": true,
+      "message": "Team reports 1 members, database has 1",
+      "timestamp": "2025-10-24T10:54:12.672687",
+      "details": {
+        "team_id": "90943abc-4db4-4f8e-9495-d1b01c594122",
+        "team_name": "CodeNova - Team 537",
+        "reported_count": 1,
+        "actual_count": 1
+      }
+    },
+    {
+      "test": "Member Count Accuracy - Team CodeNova - Team 537",
+      "passed": true,
+      "message": "Team reports 0 members, database has 0",
+      "timestamp": "2025-10-24T10:54:12.676599",
+      "details": {
+        "team_id": "e52aa7ce-40d2-4dd4-aa0a-3d8250bf63ca",
+        "team_name": "CodeNova - Team 537",
+        "reported_count": 0,
+        "actual_count": 0
+      }
+    },
+    {
+      "test": "Member Count Accuracy - Team CodeNova - Team 537",
+      "passed": true,
+      "message": "Team reports 0 members, database has 0",
+      "timestamp": "2025-10-24T10:54:12.680793",
+      "details": {
+        "team_id": "e7a2f1c9-303f-437f-8fb4-6c1412ddd844",
+        "team_name": "CodeNova - Team 537",
+        "reported_count": 0,
+        "actual_count": 0
+      }
+    },
+    {
+      "test": "Member Count Accuracy - Team CodeNova - Team 537",
+      "passed": true,
+      "message": "Team reports 0 members, database has 0",
+      "timestamp": "2025-10-24T10:54:12.687864",
+      "details": {
+        "team_id": "16a04554-fcdd-45c1-b506-975b79b0f81c",
+        "team_name": "CodeNova - Team 537",
+        "reported_count": 0,
+        "actual_count": 0
+      }
+    },
+    {
+      "test": "Member Count Accuracy - Team CodeNova - Team 537",
+      "passed": true,
+      "message": "Team reports 0 members, database has 0",
+      "timestamp": "2025-10-24T10:54:12.692459",
+      "details": {
+        "team_id": "549adde6-01ba-4478-b0b5-8e0166c1060b",
+        "team_name": "CodeNova - Team 537",
+        "reported_count": 0,
+        "actual_count": 0
+      }
+    },
+    {
+      "test": "Member Count Accuracy - Team CodeNova - Team 538",
+      "passed": true,
+      "message": "Team reports 0 members, database has 0",
+      "timestamp": "2025-10-24T10:54:12.698965",
+      "details": {
+        "team_id": "421d7ba2-1452-4d5c-b613-0f2903c75ed2",
+        "team_name": "CodeNova - Team 538",
+        "reported_count": 0,
+        "actual_count": 0
+      }
+    },
+    {
+      "test": "Member Count Accuracy - Team Test Team Alpha",
+      "passed": true,
+      "message": "Team reports 2 members, database has 2",
+      "timestamp": "2025-10-24T10:54:12.705487",
+      "details": {
+        "team_id": "ad55f035-245a-46e8-9c51-0e90bb285881",
+        "team_name": "Test Team Alpha",
+        "reported_count": 2,
+        "actual_count": 2
+      }
+    },
+    {
+      "test": "Member Count Accuracy - Team Test Team Beta",
+      "passed": true,
+      "message": "Team reports 0 members, database has 0",
+      "timestamp": "2025-10-24T10:54:12.710012",
+      "details": {
+        "team_id": "603f737c-b84f-4ba3-b195-12cf9994d61c",
+        "team_name": "Test Team Beta",
+        "reported_count": 0,
+        "actual_count": 0
+      }
+    },
+    {
+      "test": "Team Data Completeness - Test Team",
+      "passed": true,
+      "message": "Team has all required fields and relationships",
+      "timestamp": "2025-10-24T10:54:12.761624",
+      "details": {
+        "team_id": "3006e65b-02ef-43df-8b0e-0b071669857b",
+        "missing_fields": [],
+        "admin_loaded": true,
+        "member_count_present": true,
+        "admin_name": "Admin User"
+      }
+    },
+    {
+      "test": "Team Data Completeness - CodeNova - Team 537",
+      "passed": true,
+      "message": "Team has all required fields and relationships",
+      "timestamp": "2025-10-24T10:54:12.766077",
+      "details": {
+        "team_id": "90943abc-4db4-4f8e-9495-d1b01c594122",
+        "missing_fields": [],
+        "admin_loaded": true,
+        "member_count_present": true,
+        "admin_name": "Revan Rao"
+      }
+    },
+    {
+      "test": "Team Data Completeness - CodeNova - Team 537",
+      "passed": true,
+      "message": "Team has all required fields and relationships",
+      "timestamp": "2025-10-24T10:54:12.766430",
+      "details": {
+        "team_id": "e52aa7ce-40d2-4dd4-aa0a-3d8250bf63ca",
+        "missing_fields": [],
+        "admin_loaded": true,
+        "member_count_present": true,
+        "admin_name": "Revan Rao"
+      }
+    },
+    {
+      "test": "Team Data Completeness - CodeNova - Team 537",
+      "passed": true,
+      "message": "Team has all required fields and relationships",
+      "timestamp": "2025-10-24T10:54:12.766569",
+      "details": {
+        "team_id": "e7a2f1c9-303f-437f-8fb4-6c1412ddd844",
+        "missing_fields": [],
+        "admin_loaded": true,
+        "member_count_present": true,
+        "admin_name": "Revan Rao"
+      }
+    },
+    {
+      "test": "Team Data Completeness - CodeNova - Team 537",
+      "passed": true,
+      "message": "Team has all required fields and relationships",
+      "timestamp": "2025-10-24T10:54:12.766682",
+      "details": {
+        "team_id": "16a04554-fcdd-45c1-b506-975b79b0f81c",
+        "missing_fields": [],
+        "admin_loaded": true,
+        "member_count_present": true,
+        "admin_name": "Revan Rao"
+      }
+    },
+    {
+      "test": "Team Data Completeness - CodeNova - Team 537",
+      "passed": true,
+      "message": "Team has all required fields and relationships",
+      "timestamp": "2025-10-24T10:54:12.766799",
+      "details": {
+        "team_id": "549adde6-01ba-4478-b0b5-8e0166c1060b",
+        "missing_fields": [],
+        "admin_loaded": true,
+        "member_count_present": true,
+        "admin_name": "Revan Rao"
+      }
+    },
+    {
+      "test": "Team Data Completeness - CodeNova - Team 538",
+      "passed": true,
+      "message": "Team has all required fields and relationships",
+      "timestamp": "2025-10-24T10:54:12.766878",
+      "details": {
+        "team_id": "421d7ba2-1452-4d5c-b613-0f2903c75ed2",
+        "missing_fields": [],
+        "admin_loaded": true,
+        "member_count_present": true,
+        "admin_name": "Revan Rao"
+      }
+    },
+    {
+      "test": "Team Data Completeness - Test Team Alpha",
+      "passed": true,
+      "message": "Team has all required fields and relationships",
+      "timestamp": "2025-10-24T10:54:12.771506",
+      "details": {
+        "team_id": "ad55f035-245a-46e8-9c51-0e90bb285881",
+        "missing_fields": [],
+        "admin_loaded": true,
+        "member_count_present": true,
+        "admin_name": "Test Team Lead"
+      }
+    },
+    {
+      "test": "Team Data Completeness - Test Team Beta",
+      "passed": true,
+      "message": "Team has all required fields and relationships",
+      "timestamp": "2025-10-24T10:54:12.775186",
+      "details": {
+        "team_id": "603f737c-b84f-4ba3-b195-12cf9994d61c",
+        "missing_fields": [],
+        "admin_loaded": true,
+        "member_count_present": true,
+        "admin_name": "Test Admin"
+      }
+    },
+    {
+      "test": "Team Admin Relationship - Test Team",
+      "passed": true,
+      "message": "Admin relationship properly loaded",
+      "timestamp": "2025-10-24T10:54:12.822837",
+      "details": {
+        "team_id": "3006e65b-02ef-43df-8b0e-0b071669857b",
+        "admin_id": 14,
+        "admin_loaded": true,
+        "admin_exists_in_db": true,
+        "admin_data_matches": true,
+        "admin_name": "Admin User"
+      }
+    },
+    {
+      "test": "Team Admin Relationship - CodeNova - Team 537",
+      "passed": true,
+      "message": "Admin relationship properly loaded",
+      "timestamp": "2025-10-24T10:54:12.828059",
+      "details": {
+        "team_id": "90943abc-4db4-4f8e-9495-d1b01c594122",
+        "admin_id": 2,
+        "admin_loaded": true,
+        "admin_exists_in_db": true,
+        "admin_data_matches": true,
+        "admin_name": "Revan Rao"
+      }
+    },
+    {
+      "test": "Team Admin Relationship - CodeNova - Team 537",
+      "passed": true,
+      "message": "Admin relationship properly loaded",
+      "timestamp": "2025-10-24T10:54:12.835071",
+      "details": {
+        "team_id": "e52aa7ce-40d2-4dd4-aa0a-3d8250bf63ca",
+        "admin_id": 2,
+        "admin_loaded": true,
+        "admin_exists_in_db": true,
+        "admin_data_matches": true,
+        "admin_name": "Revan Rao"
+      }
+    },
+    {
+      "test": "Team Admin Relationship - CodeNova - Team 537",
+      "passed": true,
+      "message": "Admin relationship properly loaded",
+      "timestamp": "2025-10-24T10:54:12.839138",
+      "details": {
+        "team_id": "e7a2f1c9-303f-437f-8fb4-6c1412ddd844",
+        "admin_id": 2,
+        "admin_loaded": true,
+        "admin_exists_in_db": true,
+        "admin_data_matches": true,
+        "admin_name": "Revan Rao"
+      }
+    },
+    {
+      "test": "Team Admin Relationship - CodeNova - Team 537",
+      "passed": true,
+      "message": "Admin relationship properly loaded",
+      "timestamp": "2025-10-24T10:54:12.842656",
+      "details": {
+        "team_id": "16a04554-fcdd-45c1-b506-975b79b0f81c",
+        "admin_id": 2,
+        "admin_loaded": true,
+        "admin_exists_in_db": true,
+        "admin_data_matches": true,
+        "admin_name": "Revan Rao"
+      }
+    },
+    {
+      "test": "Team Admin Relationship - CodeNova - Team 537",
+      "passed": true,
+      "message": "Admin relationship properly loaded",
+      "timestamp": "2025-10-24T10:54:12.848086",
+      "details": {
+        "team_id": "549adde6-01ba-4478-b0b5-8e0166c1060b",
+        "admin_id": 2,
+        "admin_loaded": true,
+        "admin_exists_in_db": true,
+        "admin_data_matches": true,
+        "admin_name": "Revan Rao"
+      }
+    },
+    {
+      "test": "Team Admin Relationship - CodeNova - Team 538",
+      "passed": true,
+      "message": "Admin relationship properly loaded",
+      "timestamp": "2025-10-24T10:54:12.854009",
+      "details": {
+        "team_id": "421d7ba2-1452-4d5c-b613-0f2903c75ed2",
+        "admin_id": 2,
+        "admin_loaded": true,
+        "admin_exists_in_db": true,
+        "admin_data_matches": true,
+        "admin_name": "Revan Rao"
+      }
+    },
+    {
+      "test": "Team Admin Relationship - Test Team Alpha",
+      "passed": true,
+      "message": "Admin relationship properly loaded",
+      "timestamp": "2025-10-24T10:54:12.863001",
+      "details": {
+        "team_id": "ad55f035-245a-46e8-9c51-0e90bb285881",
+        "admin_id": 27,
+        "admin_loaded": true,
+        "admin_exists_in_db": true,
+        "admin_data_matches": true,
+        "admin_name": "Test Team Lead"
+      }
+    },
+    {
+      "test": "Team Admin Relationship - Test Team Beta",
+      "passed": true,
+      "message": "Admin relationship properly loaded",
+      "timestamp": "2025-10-24T10:54:12.872379",
+      "details": {
+        "team_id": "603f737c-b84f-4ba3-b195-12cf9994d61c",
+        "admin_id": 26,
+        "admin_loaded": true,
+        "admin_exists_in_db": true,
+        "admin_data_matches": true,
+        "admin_name": "Test Admin"
+      }
+    },
+    {
+      "test": "Team Deletion Functionality",
+      "passed": true,
+      "message": "Team deletion succeeded",
+      "timestamp": "2025-10-24T10:54:12.984160",
+      "details": {
+        "team_id": "0acb2604-9950-4bc7-81a8-4df0beb790c0",
+        "team_existed_before": true,
+        "deletion_returned_success": true,
+        "team_exists_after": false,
+        "members_before_deletion": 1,
+        "members_after_deletion": 0
+      }
+    },
+    {
+      "test": "Empty State Handling",
+      "passed": true,
+      "message": "Empty state returns 0 teams (expected 0)",
+      "timestamp": "2025-10-24T10:54:13.676847",
+      "details": {
+        "empty_teams_count": 0,
+        "original_teams_count": 9,
+        "restored_teams_count": 9
+      }
+    }
+  ]
+}

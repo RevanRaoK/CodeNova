@@ -305,7 +305,7 @@ export function PatternLibrary() {
 
               {/* Expanded Issues Section */}
               {expandedAnalyses.has(analysis.id) && analysis.issuesCount > 0 && (
-                <AnalysisIssuesGroup analysisId={analysis.id} />
+                <AnalysisIssuesGroup analysisId={analysis.id} analysisType={analysis.type} />
               )}
             </div>
           ))}
@@ -374,7 +374,7 @@ export function PatternLibrary() {
 }
 
 // Component to display grouped issues for an analysis
-function AnalysisIssuesGroup({ analysisId }) {
+function AnalysisIssuesGroup({ analysisId, analysisType }) {
   const [issues, setIssues] = useState([])
   const [filteredIssues, setFilteredIssues] = useState([])
   const [loading, setLoading] = useState(true)
@@ -400,7 +400,7 @@ function AnalysisIssuesGroup({ analysisId }) {
     try {
       setLoading(true)
       console.log('Fetching analysis details for ID:', analysisId)
-      const analysis = await analysisService.getAnalysisById(analysisId)
+      const analysis = await analysisService.getAnalysisById(analysisId, analysisType)
       console.log('Analysis details received:', analysis)
       const analysisIssues = analysis.issues || []
       setIssues(analysisIssues)

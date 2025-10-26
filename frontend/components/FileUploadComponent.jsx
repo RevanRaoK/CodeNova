@@ -16,6 +16,7 @@ import { validateFile, formatFileSize, isDragAndDropSupported } from '../utils/f
 import { useErrorHandler } from '../utils/errorHandler.jsx';
 import { ErrorUtils } from '../utils/errorHandler.js';
 import ErrorDisplay from './forms/ErrorDisplay';
+import { toast } from '../utils/toastNotifications.js';
 
 const FileUploadComponent = ({ onClose, onSuccess, maxFiles = 10 }) => {
      const [files, setFiles] = useState([]);
@@ -205,6 +206,9 @@ const FileUploadComponent = ({ onClose, onSuccess, maxFiles = 10 }) => {
 
                          uploadedFiles.push(result);
 
+                         // Show immediate upload success notification
+                         toast.success(`File "${fileItem.name}" uploaded successfully`);
+
                     } catch (error) {
                          console.error(`Failed to upload ${fileItem.name}:`, error);
 
@@ -233,8 +237,15 @@ const FileUploadComponent = ({ onClose, onSuccess, maxFiles = 10 }) => {
                     }
                }
 
-               // Call success callback if any files were uploaded
+               // Show batch completion notification
                if (uploadedFiles.length > 0) {
+                    if (uploadedFiles.length === files.length) {
+                         toast.success(`All ${uploadedFiles.length} files uploaded successfully. Analysis will begin shortly.`);
+                    } else {
+                         toast.warning(`${uploadedFiles.length} of ${files.length} files uploaded successfully. Analysis will begin for uploaded files.`);
+                    }
+                    
+                    // Call success callback for parent component
                     onSuccess(uploadedFiles);
                }
 

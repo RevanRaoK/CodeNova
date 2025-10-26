@@ -108,19 +108,19 @@ export function FeedbackWidget({
       const feedbackData = {
         issueId: suggestion.id,
         feedbackType,
-        rejectionReasons,
+        feedbackComment: rejectionReasons && rejectionReasons.length > 0 
+          ? `Rejection reasons: ${rejectionReasons.join(', ')}` 
+          : null,
         contextData: {
-          suggestionText: suggestion.message || suggestion.suggestion,
+          suggestionText: (suggestion.message || suggestion.suggestion || '').substring(0, 500), // Limit to 500 chars
           severity: suggestion.severity,
           line: suggestion.line,
           column: suggestion.column,
           category: suggestion.category,
+          rejectionReasonsCount: rejectionReasons ? rejectionReasons.length : 0, // Just count, not full reasons
           submittedAt: new Date().toISOString(),
         },
       };
-
-      // Validate feedback data
-      feedbackService.validateFeedbackData(feedbackData);
 
       const response = await feedbackService.submitFeedback(feedbackData);
 

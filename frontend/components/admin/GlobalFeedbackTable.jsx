@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, Edit } from 'lucide-react';
+import { Search, Filter, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, Edit, MessageSquare } from 'lucide-react';
 import adminService from '../../services/adminService.js';
+import EmptyState from '../EmptyState.jsx';
 
 /**
  * Global feedback table showing all feedback across the platform
@@ -130,7 +131,7 @@ const GlobalFeedbackTable = ({ dateRange, teamId, onError, onSuccess, currentUse
                {/* Summary Cards */}
                {summary && (
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                         <div className="bg-white rounded-lg shadow-sm border p-6">
+                         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                               <div className="flex items-center">
                                    <div className="bg-green-100 rounded-full p-3">
                                         <ThumbsUp className="h-6 w-6 text-green-600" />
@@ -147,7 +148,7 @@ const GlobalFeedbackTable = ({ dateRange, teamId, onError, onSuccess, currentUse
                               </div>
                          </div>
 
-                         <div className="bg-white rounded-lg shadow-sm border p-6">
+                         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                               <div className="flex items-center">
                                    <div className="bg-red-100 rounded-full p-3">
                                         <ThumbsDown className="h-6 w-6 text-red-600" />
@@ -164,7 +165,7 @@ const GlobalFeedbackTable = ({ dateRange, teamId, onError, onSuccess, currentUse
                               </div>
                          </div>
 
-                         <div className="bg-white rounded-lg shadow-sm border p-6">
+                         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                               <div className="flex items-center">
                                    <div className="bg-blue-100 rounded-full p-3">
                                         <Edit className="h-6 w-6 text-blue-600" />
@@ -184,7 +185,7 @@ const GlobalFeedbackTable = ({ dateRange, teamId, onError, onSuccess, currentUse
                )}
 
                {/* Filters */}
-               <div className="bg-white rounded-lg shadow-sm border p-6">
+               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                     <div className="flex items-center justify-between mb-4">
                          <h3 className="text-lg font-medium text-gray-900">
                               All Feedback ({totalFeedback})
@@ -247,7 +248,7 @@ const GlobalFeedbackTable = ({ dateRange, teamId, onError, onSuccess, currentUse
                </div>
 
                {/* Feedback Table */}
-               <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+               <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                     <div className="overflow-x-auto">
                          <table className="min-w-full divide-y divide-gray-200">
                               <thead className="bg-gray-50">
@@ -295,8 +296,16 @@ const GlobalFeedbackTable = ({ dateRange, teamId, onError, onSuccess, currentUse
                                         </tr>
                                    ) : feedback.length === 0 ? (
                                         <tr>
-                                             <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
-                                                  No feedback found
+                                             <td colSpan="6" className="px-6 py-4">
+                                                  <EmptyState
+                                                       icon={MessageSquare}
+                                                       title="No Feedback Found"
+                                                       description={Object.values(filters).some(f => f) || teamId ? 
+                                                            "No feedback matches your current filters. Try adjusting your search criteria or date range." :
+                                                            "No feedback has been submitted yet. Feedback will appear here once users start providing feedback on code reviews."
+                                                       }
+                                                       className="py-8"
+                                                  />
                                              </td>
                                         </tr>
                                    ) : (

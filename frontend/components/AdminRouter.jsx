@@ -10,7 +10,7 @@ import UserManagementPanel from './admin/UserManagementPanel';
 import TeamManagementPanel from './admin/TeamManagementPanel';
 import TeamAnalyticsPanel from './admin/TeamAnalyticsPanel';
 import AuditLogPanel from './admin/AuditLogPanel';
-import PlatformStatsPanel from './admin/PlatformStatsPanel';
+
 
 /**
  * Admin router component that handles admin-specific routing and authentication
@@ -43,7 +43,7 @@ const AdminRouter = () => {
                 <Route path="/teams" element={<TeamManagementPanel />} />
                 <Route path="/analytics" element={<TeamAnalyticsPanel />} />
                 <Route path="/audit" element={<AuditLogPanel />} />
-                <Route path="/stats" element={<PlatformStatsPanel />} />
+
                 {/* Redirect any unknown admin routes to dashboard */}
                 <Route path="*" element={<Navigate to="/admin" replace />} />
               </Routes>
