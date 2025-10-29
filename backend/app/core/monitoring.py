@@ -16,7 +16,6 @@ from datetime import datetime, timedelta
 from functools import wraps
 from contextlib import contextmanager
 import asyncio
-import psutil
 import threading
 import os
 from dataclasses import dataclass, asdict
@@ -24,6 +23,17 @@ from enum import Enum
 
 from app.core.config import settings
 from app.core.cache import cache
+
+
+try:  # Optional dependency for system metrics
+    import psutil  # type: ignore
+    _PSUTIL_AVAILABLE = True
+except ModuleNotFoundError:
+    psutil = None  # type: ignore
+    _PSUTIL_AVAILABLE = False
+    logging.getLogger(__name__).warning(
+        "psutil not installed; system metrics will use fallback values. Install psutil to enable detailed monitoring."
+    )
 
 
 class LogLevel(str, Enum):
@@ -332,9 +342,19 @@ class SystemMonitor:
         self.logger = StructuredLogger("system_monitor", ServiceType.API)
         self.running = False
         self.monitor_thread = None
+        self._psutil_available = _PSUTIL_AVAILABLE
+        self._warned_missing_psutil = False
     
     def start_monitoring(self, interval: int = 60):
         """Start system monitoring in background thread."""
+        if not self._psutil_available:
+            if not self._warned_missing_psutil:
+                self.logger.warning(
+                    "psutil is not available; background system monitoring is disabled."
+                )
+                self._warned_missing_psutil = True
+            return
+        
         if self.running:
             return
         
@@ -371,6 +391,25 @@ class SystemMonitor:
     
     def _collect_system_metrics(self) -> SystemMetric:
         """Collect current system metrics."""
+        if not self._psutil_available:
+            if not self._warned_missing_psutil:
+                self.logger.warning(
+                    "psutil is not installed; returning baseline system metrics only."
+                )
+                self._warned_missing_psutil = True
+            cache_health = cache.redis_client.info() if hasattr(cache, 'redis_client') else {}
+            hits = cache_health.get('keyspace_hits', 0)
+            misses = cache_health.get('keyspace_misses', 0)
+            hit_rate = hits / (hits + misses) if (hits + misses) > 0 else 0
+            return SystemMetric(
+                timestamp=datetime.utcnow(),
+                cpu_percent=0.0,
+                memory_percent=0.0,
+                disk_usage_percent=0.0,
+                active_connections=0,
+                cache_hit_rate=hit_rate
+            )
+        
         # CPU and memory
         cpu_percent = psutil.cpu_percent(interval=1)
         memory = psutil.virtual_memory()
@@ -409,7 +448,10 @@ class SystemMonitor:
             disk_percent = 0
         
         # Network connections
-        connections = len(psutil.net_connections())
+        try:
+            connections = len(psutil.net_connections())
+        except Exception:
+            connections = 0
         
         # Cache hit rate
         cache_health = cache.redis_client.info() if hasattr(cache, 'redis_client') else {}

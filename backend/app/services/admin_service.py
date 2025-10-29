@@ -7,7 +7,7 @@ import logging
 
 from app.models.users import User, UserRole
 from app.models.team import Team
-from app.models.feedback import FeedbackRecord
+from app.models.feedback import FeedbackRecord, Issue
 from app.models.analysis import DirectAnalysis
 from app.models.audit_log import AuditLog
 from app.schemas.user import UserResponse, UserRoleUpdate
@@ -441,77 +441,130 @@ class AdminService:
     # Dashboard Metrics
     
     async def get_dashboard_metrics(self) -> Dict[str, Any]:
-        """
-        Get dashboard metrics including reviews completed today.
-        
-        Requirements: 1.1, 1.2, 1.3, 1.4, 12.1, 12.2, 12.3, 12.4, 12.5
-        """
-        # Get total users count
+        """Return real-time snapshot metrics for the admin overview dashboard."""
         total_users = self.db.query(func.count(User.id)).scalar() or 0
-        
-        # Get active teams count (teams with at least one member)
-        active_teams = self.db.query(func.count(func.distinct(User.team_id))).filter(
-            User.team_id.isnot(None)
-        ).scalar() or 0
-        
-        # Get reviews completed today
+
+        active_teams = (
+            self.db.query(func.count(func.distinct(User.team_id)))
+            .filter(and_(User.team_id.isnot(None), User.is_active == True))
+            .scalar()
+            or 0
+        )
+
         today = datetime.utcnow().date()
-        reviews_today = self.db.query(func.count(DirectAnalysis.id)).filter(
-            and_(
+        reviews_today = (
+            self.db.query(func.count(DirectAnalysis.id))
+            .filter(
                 DirectAnalysis.status == "completed",
+                DirectAnalysis.completed_at.isnot(None),
                 func.date(DirectAnalysis.completed_at) == today
             )
-        ).scalar() or 0
-        
-        # Get recent activities (last 10 activities)
-        recent_activities = []
-        
-        # Get recent completed analyses
-        recent_analyses = self.db.query(DirectAnalysis).filter(
-            DirectAnalysis.status == "completed"
-        ).order_by(DirectAnalysis.completed_at.desc()).limit(5).all()
-        
-        for analysis in recent_analyses:
-            user = self.db.query(User).filter(User.id == analysis.user_id).first()
-            if user:
-                recent_activities.append({
-                    "id": analysis.id,
-                    "type": "review_completed",
-                    "user_id": user.id,
-                    "user_name": user.full_name or user.email,
-                    "description": f"Completed code review in {analysis.language}",
-                    "timestamp": analysis.completed_at.isoformat() if analysis.completed_at else analysis.created_at.isoformat()
-                })
-        
-        # Get recent user registrations
-        recent_users = self.db.query(User).order_by(User.created_at.desc()).limit(3).all()
-        for user in recent_users:
+            .scalar()
+            or 0
+        )
+
+        recent_activities: List[Dict[str, Any]] = []
+
+        recent_analyses = (
+            self.db.query(DirectAnalysis, User)
+            .join(User, DirectAnalysis.user_id == User.id)
+            .filter(DirectAnalysis.status == "completed")
+            .order_by(desc(DirectAnalysis.completed_at))
+            .limit(6)
+            .all()
+        )
+        for analysis, user in recent_analyses:
+            timestamp = analysis.completed_at or analysis.created_at
+            if not timestamp:
+                continue
             recent_activities.append({
-                "id": f"user_{user.id}",
-                "type": "user_created",
+                "id": analysis.id,
+                "type": "review_completed",
                 "user_id": user.id,
                 "user_name": user.full_name or user.email,
-                "description": f"New user registered",
+                "description": (
+                    f"Completed {analysis.language or 'code'} review"
+                    if analysis.filename is None
+                    else f"Completed review for {analysis.filename}"
+                ),
+                "timestamp": timestamp.isoformat()
+            })
+
+        recent_feedback = (
+            self.db.query(FeedbackRecord, User)
+            .join(User, FeedbackRecord.user_id == User.id)
+            .order_by(desc(FeedbackRecord.created_at))
+            .limit(5)
+            .all()
+        )
+        for feedback, user in recent_feedback:
+            if not feedback.created_at:
+                continue
+            recent_activities.append({
+                "id": f"feedback_{feedback.id}",
+                "type": "feedback",
+                "user_id": user.id,
+                "user_name": user.full_name or user.email,
+                "description": (
+                    f"{feedback.feedback_type.capitalize()} feedback on issue {feedback.issue_id[:8]}"
+                    if feedback.issue_id else "Feedback submitted"
+                ),
+                "timestamp": feedback.created_at.isoformat()
+            })
+
+        recent_users = (
+            self.db.query(User)
+            .order_by(desc(User.created_at))
+            .limit(5)
+            .all()
+        )
+        for user in recent_users:
+            if not user.created_at:
+                continue
+            recent_activities.append({
+                "id": f"user_{user.id}",
+                "type": "user_registered",
+                "user_id": user.id,
+                "user_name": user.full_name or user.email,
+                "description": "New user registration",
                 "timestamp": user.created_at.isoformat()
             })
-        
-        # Get recent team creations
-        recent_teams = self.db.query(Team).order_by(Team.created_at.desc()).limit(2).all()
-        for team in recent_teams:
-            admin_user = self.db.query(User).filter(User.id == team.admin_id).first()
-            recent_activities.append({
-                "id": f"team_{team.id}",
-                "type": "team_created",
-                "user_id": team.admin_id,
-                "user_name": admin_user.full_name or admin_user.email if admin_user else "Unknown",
-                "description": f"Created team '{team.name}'",
-                "timestamp": team.created_at.isoformat()
-            })
-        
-        # Sort activities by timestamp (most recent first) and limit to 10
-        recent_activities.sort(key=lambda x: x["timestamp"], reverse=True)
+
+        recent_teams = (
+            self.db.query(Team)
+            .order_by(desc(Team.created_at))
+            .limit(5)
+            .all()
+        )
+        if recent_teams:
+            admin_ids = [team.admin_id for team in recent_teams if team.admin_id]
+            admin_map: Dict[int, User] = {}
+            if admin_ids:
+                admin_map = {
+                    admin.id: admin
+                    for admin in self.db.query(User)
+                    .filter(User.id.in_(admin_ids))
+                    .all()
+                }
+            for team in recent_teams:
+                if not team.created_at:
+                    continue
+                admin_user = admin_map.get(team.admin_id)
+                recent_activities.append({
+                    "id": f"team_{team.id}",
+                    "type": "team_created",
+                    "user_id": team.admin_id,
+                    "user_name": (
+                        admin_user.full_name or admin_user.email
+                        if admin_user else "Unknown"
+                    ),
+                    "description": f"Team '{team.name}' created",
+                    "timestamp": team.created_at.isoformat()
+                })
+
+        recent_activities.sort(key=lambda item: item["timestamp"], reverse=True)
         recent_activities = recent_activities[:10]
-        
+
         return {
             "total_users": total_users,
             "active_teams": active_teams,
@@ -521,99 +574,240 @@ class AdminService:
     
     # Platform-wide Analytics
     
-    async def get_platform_analytics(self, team_id: Optional[str] = None, date_range: str = "30d") -> Dict[str, Any]:
-        """
-        Get platform-wide analytics for admin dashboard with optional team filtering.
-        
-        Requirements: 3.1 - Admin accesses admin dashboard with user management interface
-        Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6 - Team filtering support
-        """
-        # Parse date range
+    async def get_platform_analytics(
+        self,
+        team_id: Optional[str] = None,
+        date_range: str = "30d"
+    ) -> Dict[str, Any]:
+        """Return comprehensive analytics for the admin dashboard, with team filtering."""
         days_map = {"7d": 7, "30d": 30, "90d": 90}
         days = days_map.get(date_range, 30)
-        date_filter = datetime.utcnow() - timedelta(days=days)
-        
-        # Base queries with optional team filtering
+        now = datetime.utcnow()
+        start_date = now - timedelta(days=days)
+        previous_period_start = start_date - timedelta(days=days)
+
         user_query = self.db.query(User)
-        analysis_query = self.db.query(DirectAnalysis)
-        feedback_query = self.db.query(FeedbackRecord)
-        
         if team_id:
-            # Filter by team
             user_query = user_query.filter(User.team_id == team_id)
-            analysis_query = analysis_query.join(User).filter(User.team_id == team_id)
-            feedback_query = feedback_query.join(User).filter(User.team_id == team_id)
-            
-            # For team filtering, count only that team
-            total_teams = 1 if self.db.query(Team).filter(Team.id == team_id).first() else 0
-        else:
-            # Count all teams when no filter
-            total_teams = self.db.query(func.count(Team.id)).scalar() or 0
-        
+
         total_users = user_query.count() or 0
         active_users = user_query.filter(User.is_active == True).count() or 0
-        total_analyses = analysis_query.count() or 0
+        inactive_users = max(total_users - active_users, 0)
+
+        if team_id:
+            total_teams = (
+                self.db.query(func.count(Team.id))
+                .filter(Team.id == team_id)
+                .scalar()
+                or 0
+            )
+        else:
+            total_teams = self.db.query(func.count(Team.id)).scalar() or 0
+
+        completed_analyses_query = self.db.query(DirectAnalysis).filter(DirectAnalysis.status == "completed")
+        if team_id:
+            completed_analyses_query = completed_analyses_query.join(User, DirectAnalysis.user_id == User.id).filter(User.team_id == team_id)
+        total_analyses = completed_analyses_query.count() or 0
+
+        feedback_query = self.db.query(FeedbackRecord)
+        if team_id:
+            feedback_query = feedback_query.join(User, FeedbackRecord.user_id == User.id).filter(User.team_id == team_id)
         total_feedback = feedback_query.count() or 0
-        
-        # Calculate total issues with team filtering
-        from app.models.feedback import Issue
+
         issue_query = self.db.query(Issue)
         if team_id:
-            issue_query = issue_query.join(DirectAnalysis).join(User).filter(User.team_id == team_id)
+            issue_query = (
+                issue_query.join(DirectAnalysis, DirectAnalysis.id == Issue.analysis_id)
+                .join(User, DirectAnalysis.user_id == User.id)
+                .filter(User.team_id == team_id)
+            )
         total_issues = issue_query.count() or 0
-        
-        # Calculate average issues per review
-        avg_issues_per_review = (total_issues / total_analyses) if total_analyses > 0 else 0.0
-        
-        # Calculate feedback participation rate with team filtering
-        accepted_feedback_query = feedback_query.filter(FeedbackRecord.feedback_type == "accept")
-        accepted_feedback = accepted_feedback_query.count() or 0
-        feedback_participation_rate = (accepted_feedback / total_feedback) if total_feedback > 0 else 0.0
-        
-        # User role distribution with team filtering
-        role_distribution = {}
-        for role in UserRole:
-            count = user_query.filter(User.role == role).count() or 0
-            role_distribution[role.value] = count
-        
-        # Recent activity within date range and team filter
-        active_users_range = analysis_query.filter(
-            DirectAnalysis.created_at >= date_filter
-        ).with_entities(func.count(func.distinct(DirectAnalysis.user_id))).scalar() or 0
-        
-        recent_users = user_query.filter(User.created_at >= date_filter).count() or 0
-        recent_analyses = analysis_query.filter(DirectAnalysis.created_at >= date_filter).count() or 0
-        
-        # Get reviews completed today with team filtering
-        today = datetime.utcnow().date()
-        reviews_today_query = analysis_query.filter(
-            and_(
-                DirectAnalysis.status == "completed",
-                func.date(DirectAnalysis.completed_at) == today
+
+        avg_issues_per_review = round(total_issues / total_analyses, 2) if total_analyses else 0.0
+
+        accepted_feedback = feedback_query.filter(FeedbackRecord.feedback_type == "accept").count() or 0
+        feedback_acceptance_rate = round(accepted_feedback / total_feedback, 2) if total_feedback else 0.0
+
+        active_users_30d_query = self.db.query(func.count(func.distinct(DirectAnalysis.user_id))).filter(
+            DirectAnalysis.status == "completed",
+            DirectAnalysis.completed_at.isnot(None),
+            DirectAnalysis.completed_at >= start_date
+        )
+        if team_id:
+            active_users_30d_query = active_users_30d_query.join(User, DirectAnalysis.user_id == User.id).filter(User.team_id == team_id)
+        active_users_30d = active_users_30d_query.scalar() or 0
+
+        today = now.date()
+        reviews_today_query = self.db.query(func.count(DirectAnalysis.id)).filter(
+            DirectAnalysis.status == "completed",
+            DirectAnalysis.completed_at.isnot(None),
+            func.date(DirectAnalysis.completed_at) == today
+        )
+        if team_id:
+            reviews_today_query = reviews_today_query.join(User, DirectAnalysis.user_id == User.id).filter(User.team_id == team_id)
+        reviews_today = reviews_today_query.scalar() or 0
+
+        recent_users_query = self.db.query(func.count(User.id)).filter(User.created_at >= start_date)
+        if team_id:
+            recent_users_query = recent_users_query.filter(User.team_id == team_id)
+        recent_users = recent_users_query.scalar() or 0
+
+        recent_analyses_query = self.db.query(func.count(DirectAnalysis.id)).filter(
+            DirectAnalysis.status == "completed",
+            DirectAnalysis.completed_at.isnot(None),
+            DirectAnalysis.completed_at >= start_date
+        )
+        if team_id:
+            recent_analyses_query = recent_analyses_query.join(User, DirectAnalysis.user_id == User.id).filter(User.team_id == team_id)
+        recent_analyses = recent_analyses_query.scalar() or 0
+
+        role_distribution: Dict[str, int] = {role.value: 0 for role in UserRole}
+        role_counts = (
+            user_query
+            .with_entities(User.role, func.count(User.id))
+            .group_by(User.role)
+            .all()
+        )
+        for stored_role, count in role_counts:
+            # Normalise historical enum representations (mixed casing) to the lowercase keys we expose
+            if isinstance(stored_role, UserRole):
+                normalised_key = stored_role.value
+            else:
+                normalised_key = str(stored_role).lower()
+            role_distribution[normalised_key] = count or 0
+
+        issue_breakdown_data = (
+            self.db.query(
+                Issue.severity,
+                Issue.category,
+                func.count(Issue.id).label("count")
             )
         )
-        reviews_today = reviews_today_query.count() or 0
-        
+        if team_id:
+            issue_breakdown_data = (
+                issue_breakdown_data.join(DirectAnalysis, DirectAnalysis.id == Issue.analysis_id)
+                .join(User, DirectAnalysis.user_id == User.id)
+                .filter(User.team_id == team_id)
+            )
+        issue_breakdown_rows = issue_breakdown_data.group_by(Issue.severity, Issue.category).all()
+        issue_breakdown: List[Dict[str, Any]] = []
+        for severity, category, count in issue_breakdown_rows:
+            severity_value = (severity or "unknown").lower()
+            category_value = (category or "general").lower()
+            issue_breakdown.append({
+                "severity": severity_value,
+                "category": category_value,
+                "count": count,
+                "description": f"{count} issues with severity {severity_value} in category {category_value}"
+            })
+        issue_breakdown.sort(key=lambda entry: entry["count"], reverse=True)
+
+        language_counts_query = self.db.query(
+            DirectAnalysis.language,
+            func.count(DirectAnalysis.id).label("language_count")
+        ).filter(DirectAnalysis.status == "completed")
+        if team_id:
+            language_counts_query = language_counts_query.join(User, DirectAnalysis.user_id == User.id).filter(User.team_id == team_id)
+        language_counts = (
+            language_counts_query
+            .group_by(DirectAnalysis.language)
+            .order_by(desc("language_count"))
+            .limit(5)
+            .all()
+        )
+        top_languages: List[Dict[str, Any]] = []
+        for language, count in language_counts:
+            if not language:
+                continue
+            percentage = round(count / total_analyses, 2) if total_analyses else 0.0
+            top_languages.append({
+                "language": language,
+                "count": count,
+                "percentage": percentage
+            })
+
+        current_period_reviews = recent_analyses
+        previous_reviews_query = self.db.query(func.count(DirectAnalysis.id)).filter(
+            DirectAnalysis.status == "completed",
+            DirectAnalysis.completed_at.isnot(None),
+            DirectAnalysis.completed_at >= previous_period_start,
+            DirectAnalysis.completed_at < start_date
+        )
+        if team_id:
+            previous_reviews_query = previous_reviews_query.join(User, DirectAnalysis.user_id == User.id).filter(User.team_id == team_id)
+        previous_period_reviews = previous_reviews_query.scalar() or 0
+
+        current_period_feedback = (
+            feedback_query.filter(FeedbackRecord.created_at >= start_date).count()
+            if total_feedback
+            else 0
+        )
+        previous_feedback_query = self.db.query(func.count(FeedbackRecord.id)).filter(
+            FeedbackRecord.created_at >= previous_period_start,
+            FeedbackRecord.created_at < start_date
+        )
+        if team_id:
+            previous_feedback_query = previous_feedback_query.join(User, FeedbackRecord.user_id == User.id).filter(User.team_id == team_id)
+        previous_period_feedback = previous_feedback_query.scalar() or 0
+
+        current_period_issues = (
+            issue_query.filter(Issue.created_at >= start_date).count()
+            if total_issues
+            else 0
+        )
+        previous_issues_query = self.db.query(func.count(Issue.id)).filter(
+            Issue.created_at >= previous_period_start,
+            Issue.created_at < start_date
+        )
+        if team_id:
+            previous_issues_query = (
+                previous_issues_query.join(DirectAnalysis, DirectAnalysis.id == Issue.analysis_id)
+                .join(User, DirectAnalysis.user_id == User.id)
+                .filter(User.team_id == team_id)
+            )
+        previous_period_issues = previous_issues_query.scalar() or 0
+
+        growth_metrics = {
+            "reviews": {
+                "current": current_period_reviews,
+                "previous": previous_period_reviews,
+                "delta": current_period_reviews - previous_period_reviews,
+            },
+            "feedback": {
+                "current": current_period_feedback,
+                "previous": previous_period_feedback,
+                "delta": current_period_feedback - previous_period_feedback,
+            },
+            "issues": {
+                "current": current_period_issues,
+                "previous": previous_period_issues,
+                "delta": current_period_issues - previous_period_issues,
+            },
+        }
+
+        recent_activity = {
+            "new_users_30d": recent_users,
+            "new_analyses_30d": current_period_reviews,
+            "active_users_30d": active_users_30d,
+        }
+
         return {
             "total_users": total_users,
             "active_users": active_users,
-            "inactive_users": total_users - active_users,  # Add missing field
+            "inactive_users": inactive_users,
             "total_teams": total_teams,
-            "total_analyses": total_analyses,  # Add missing field (was total_reviews)
+            "total_analyses": total_analyses,
             "total_feedback": total_feedback,
             "total_issues_found": total_issues,
-            "avg_issues_per_review": round(avg_issues_per_review, 2),
-            "feedback_acceptance_rate": round(feedback_participation_rate, 2),  # Rename to match schema
-            "reviews_today": reviews_today,  # Add reviews completed today
-            "active_users_30d": active_users_range,
             "role_distribution": role_distribution,
-            "recent_activity": {
-                "new_users_30d": recent_users,
-                "new_analyses_30d": recent_analyses,
-                "active_users_30d": active_users_range
-            },
-            "top_languages": [],  # Add missing field
-            "growth_metrics": {}   # Add missing field
+            "recent_activity": recent_activity,
+            "avg_issues_per_review": avg_issues_per_review,
+            "feedback_acceptance_rate": feedback_acceptance_rate,
+            "reviews_today": reviews_today,
+            "active_users_30d": active_users_30d,
+            "top_languages": top_languages,
+            "growth_metrics": growth_metrics,
+            "issue_breakdown": issue_breakdown,
         }
     
     # Feedback Statistics
@@ -720,3 +914,4 @@ class AdminService:
         logs = query.order_by(desc(AuditLog.timestamp)).offset(skip).limit(limit).all()
         
         return logs, total
+    

@@ -454,20 +454,22 @@ class AdminService {
   }
 
   /**
-   * Get feedback statistics
+   * Get platform analytics
    * @param {Object} options - Query options
    * @param {string} options.teamId - Optional team ID to filter by
-   * @returns {Promise<Object>} Feedback statistics data
+   * @param {string} options.dateRange - Date range (7d, 30d, 90d)
+   * @returns {Promise<Object>} Platform analytics data
    */
-  async getFeedbackStatistics(options = {}) {
+  async getPlatformStats(options = {}) {
     try {
       const params = new URLSearchParams();
       if (options.teamId) params.append('team_id', options.teamId);
+      if (options.dateRange) params.append('date_range', options.dateRange);
 
-      const response = await httpClient.get(`/admin/analytics/feedback-stats?${params.toString()}`);
+      const response = await httpClient.get(`/admin/analytics/platform?${params.toString()}`);
       return response.data;
     } catch (error) {
-      console.error('Failed to fetch feedback statistics:', error);
+      console.error('Failed to fetch platform stats:', error);
       throw this.handleAdminError(error);
     }
   }

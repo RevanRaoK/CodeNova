@@ -49,9 +49,7 @@ export function Header({ toggleSidebar, showSidebarToggle = true }) {
           <div className="flex items-center space-x-2">
             {isAuthenticated ? (
               <>
-                <button className="p-1 text-gray-400 hover:text-gray-600 focus:outline-none transition-colors">
-                  <BellIcon className="h-6 w-6" />
-                </button>
+                
                 {user && (
                   <span className="text-sm text-gray-700 hidden sm:inline">
                     Welcome, {user.full_name || user.email}

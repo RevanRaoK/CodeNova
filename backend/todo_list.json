@@ -1,0 +1,26 @@
+[
+		{
+			"id": 1,
+			"title": "Inspect analytics outputs",
+			"description": "Call /api/v1/analytics/user-stats directly to confirm backend performance metrics returned.",
+			"status": "completed"
+		},
+	{
+		"id": 2,
+		"title": "Check frontend data handling",
+		"description": "Review Dashboard.jsx to ensure performance metrics from API render and handle empty data.",
+		"status": "not-started"
+	},
+		{
+			"id": 3,
+			"title": "Implement fixes",
+			"description": "Adjust backend response or frontend mapping so performance metrics show real data.",
+			"status": "in-progress"
+		},
+	{
+		"id": 4,
+		"title": "Validate UI",
+		"description": "Reload dashboard after fixes and confirm charts populate.",
+		"status": "not-started"
+	}
+]

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime
 import uuid
+import logging
 
 from app.core.database import get_db, SessionLocal
 from app.services.repository_services import repository_service
@@ -20,6 +21,7 @@ from app.schemas.analysis import (
 from pydantic import BaseModel, Field, validator
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # In-memory cache to prevent duplicate analysis requests
 _active_analyses = {}  # {user_id: {code_hash: analysis_id}}
@@ -761,57 +763,84 @@ async def get_analysis_history(
         # Add direct analyses
         for analysis in direct_analyses:
             all_analyses.append({
-                "analysis_id": analysis.id,
+                "analysis_id": str(analysis.id),
+                "id": str(analysis.id),
                 "type": "direct",
-                "status": analysis.status,
-                "language": analysis.language,
-                "filename": analysis.filename or f"code.{analysis.language}",
+                "status": str(analysis.status),
+                "language": (analysis.language or "unknown"),
+                "filename": analysis.filename or f"code.{analysis.language or 'txt'}",
                 "issues_count": analysis.issues_count or 0,
+                "issuesCount": analysis.issues_count or 0,
                 "errors_count": analysis.errors_count or 0,
+                "errorsCount": analysis.errors_count or 0,
                 "warnings_count": analysis.warnings_count or 0,
-                "lines_of_code": analysis.lines_of_code,
+                "warningsCount": analysis.warnings_count or 0,
+                "lines_of_code": analysis.lines_of_code or 0,
+                "linesOfCode": analysis.lines_of_code or 0,
                 "created_at": analysis.created_at.isoformat(),
-                "completed_at": analysis.completed_at.isoformat() if analysis.completed_at else None
+                "createdAt": analysis.created_at.isoformat(),
+                "completed_at": analysis.completed_at.isoformat() if analysis.completed_at else None,
+                "completedAt": analysis.completed_at.isoformat() if analysis.completed_at else None
             })
         
         # Add repository analyses
         for analysis in repo_analyses:
             repo = db.query(GitHubRepository).filter(GitHubRepository.id == analysis.repository_id).first()
+            formatted_status = analysis.status.value if hasattr(analysis.status, 'value') else str(analysis.status)
+            lines_of_code = getattr(analysis, "lines_of_code", None) or 0
             all_analyses.append({
-                "analysis_id": analysis.id,
+                "analysis_id": str(analysis.id),
+                "id": str(analysis.id),
                 "type": "repository",
-                "status": analysis.status.value if hasattr(analysis.status, 'value') else str(analysis.status),
+                "status": formatted_status,
                 "language": "multiple",
                 "filename": f"Full Repository Analysis - {repo.repo_name if repo else 'Unknown'}",
                 "repository_name": repo.repo_name if repo else "Unknown",
+                "repositoryName": repo.repo_name if repo else "Unknown",
                 "issues_count": analysis.issues_found or 0,
+                "issuesCount": analysis.issues_found or 0,
                 "errors_count": analysis.errors_count or 0,
+                "errorsCount": analysis.errors_count or 0,
                 "warnings_count": analysis.warnings_count or 0,
-                "lines_of_code": None,
+                "warningsCount": analysis.warnings_count or 0,
+                "lines_of_code": lines_of_code,
+                "linesOfCode": lines_of_code,
                 "created_at": analysis.created_at.isoformat(),
-                "completed_at": analysis.completed_at.isoformat() if analysis.completed_at else None
+                "createdAt": analysis.created_at.isoformat(),
+                "completed_at": analysis.completed_at.isoformat() if analysis.completed_at else None,
+                "completedAt": analysis.completed_at.isoformat() if analysis.completed_at else None
             })
         
         # Add batch analyses
         for batch_file in batch_files:
+            lines_count = len(batch_file.file_content.split('\n')) if batch_file.file_content else 0
             all_analyses.append({
-                "analysis_id": batch_file.id,
+                "analysis_id": str(batch_file.id),
+                "id": str(batch_file.id),
                 "type": "batch",
                 "status": "completed",
                 "language": batch_file.language or "unknown",
                 "filename": batch_file.filename,
                 "batch_id": batch_file.batch_id,
+                "batchId": batch_file.batch_id,
                 "issues_count": batch_file.issues_count or 0,
+                "issuesCount": batch_file.issues_count or 0,
                 "errors_count": batch_file.errors_count or 0,
+                "errorsCount": batch_file.errors_count or 0,
                 "warnings_count": batch_file.warnings_count or 0,
+                "warningsCount": batch_file.warnings_count or 0,
                 "suggestions_count": batch_file.suggestions_count or 0,
-                "lines_of_code": len(batch_file.file_content.split('\n')) if batch_file.file_content else 0,
+                "suggestionsCount": batch_file.suggestions_count or 0,
+                "lines_of_code": lines_count,
+                "linesOfCode": lines_count,
                 "created_at": batch_file.created_at.isoformat(),
-                "completed_at": batch_file.completed_at.isoformat() if batch_file.completed_at else None
+                "createdAt": batch_file.created_at.isoformat(),
+                "completed_at": batch_file.completed_at.isoformat() if batch_file.completed_at else None,
+                "completedAt": batch_file.completed_at.isoformat() if batch_file.completed_at else None
             })
         
         # Sort by created_at descending
-        all_analyses.sort(key=lambda x: x['created_at'], reverse=True)
+        all_analyses.sort(key=lambda x: x["createdAt"], reverse=True)
         
         # Apply pagination
         total_count = len(all_analyses)
@@ -871,26 +900,42 @@ async def get_batch_file_analysis(
             raise HTTPException(status_code=404, detail="Batch file analysis not found")
         
         # Structure the response similar to direct analysis
+        lines_count = len(batch_file.file_content.split('\n')) if batch_file.file_content else 0
+        file_size_kb = round(batch_file.file_size_bytes / 1024, 2) if batch_file.file_size_bytes else 0
+        completed_status = "completed" if batch_file.status == FileStatus.COMPLETED else "failed"
+
         return {
-            "analysis_id": batch_file.id,
+            "analysis_id": str(batch_file.id),
+            "id": str(batch_file.id),
             "type": "batch",
-            "status": "completed" if batch_file.status == FileStatus.COMPLETED else "failed",
+            "status": completed_status,
             "language": batch_file.language,
             "filename": batch_file.filename,
             "batch_id": batch_file.batch_id,
-            "file_size_kb": round(batch_file.file_size_bytes / 1024, 2) if batch_file.file_size_bytes else 0,
-            "lines_count": len(batch_file.file_content.split('\n')) if batch_file.file_content else 0,
+            "batchId": batch_file.batch_id,
+            "file_size_kb": file_size_kb,
+            "fileSizeKb": file_size_kb,
+            "lines_count": lines_count,
+            "linesCount": lines_count,
             "created_at": batch_file.created_at.isoformat(),
+            "createdAt": batch_file.created_at.isoformat(),
             "completed_at": batch_file.completed_at.isoformat() if batch_file.completed_at else None,
+            "completedAt": batch_file.completed_at.isoformat() if batch_file.completed_at else None,
             "processing_time_seconds": batch_file.processing_time_seconds,
+            "processingTimeSeconds": batch_file.processing_time_seconds,
             "issues": batch_file.analysis_results or [],
             "metrics": batch_file.analysis_metrics or {},
             "summary": batch_file.analysis_summary or "",
             "issues_count": batch_file.issues_count or 0,
+            "issuesCount": batch_file.issues_count or 0,
             "errors_count": batch_file.errors_count or 0,
+            "errorsCount": batch_file.errors_count or 0,
             "warnings_count": batch_file.warnings_count or 0,
+            "warningsCount": batch_file.warnings_count or 0,
             "suggestions_count": batch_file.suggestions_count or 0,
-            "error_message": batch_file.error_message
+            "suggestionsCount": batch_file.suggestions_count or 0,
+            "error_message": batch_file.error_message,
+            "errorMessage": batch_file.error_message
         }
         
     except HTTPException:
@@ -1733,9 +1778,6 @@ async def get_repository_analysis(
     try:
         from app.models.github_integration import PRAnalysis, GitHubRepository
         from uuid import UUID
-        import logging
-        
-        logger = logging.getLogger(__name__)
         logger.info(f"Fetching repository analysis for ID: {repository_analysis_id}")
         
         try:
@@ -1782,6 +1824,57 @@ async def get_repository_analysis(
             logger.error(f"Repository not found for analysis ID: {analysis_id}")
             raise HTTPException(status_code=404, detail="Repository not found")
 
+        # Normalize stored results into a stable structure for the frontend
+        raw_results = analysis.analysis_results or {}
+
+        raw_issues = raw_results.get("issues") or []
+        normalized_issues = []
+        for idx, issue in enumerate(raw_issues):
+            issue_id = (
+                issue.get("id")
+                or issue.get("issue_id")
+                or issue.get("reference_id")
+                or issue.get("uuid")
+                or f"{analysis.id}-issue-{idx}"
+            )
+
+            normalized_issues.append(
+                {
+                    "id": issue_id,
+                    "line": issue.get("line")
+                    or issue.get("line_number")
+                    or issue.get("start_line")
+                    or 0,
+                    "column": issue.get("column")
+                    or issue.get("column_number")
+                    or issue.get("start_column")
+                    or 0,
+                    "severity": (issue.get("severity") or "info").lower(),
+                    "message": issue.get("message")
+                    or issue.get("comment")
+                    or issue.get("description")
+                    or "",
+                    "rule": issue.get("rule") or issue.get("rule_id") or "ai-analysis",
+                    "category": issue.get("category")
+                    or issue.get("type")
+                    or "ai-review",
+                    "suggestion": issue.get("suggestion")
+                    or issue.get("recommendation")
+                    or issue.get("fix"),
+                    "file_path": issue.get("file_path")
+                    or issue.get("file")
+                    or issue.get("path"),
+                }
+            )
+
+        # Merge metrics from stored results and summary data when available
+        metrics_payload = raw_results.get("metrics") or {}
+        summary_payload = raw_results.get("summary") or {}
+        if summary_payload:
+            metrics_payload = {**metrics_payload}
+            for key, value in summary_payload.items():
+                metrics_payload.setdefault(key, value)
+
         # Prepare response data
         response_data = {
             "analysis_id": str(analysis.id),
@@ -1790,13 +1883,26 @@ async def get_repository_analysis(
             "language": "multiple",
             "filename": f"Full Repository Analysis - {repo.repo_name if repo else 'Unknown'}",
             "repository_name": repo.repo_name if repo else "Unknown",
-            "issues": analysis.issues_found or [],
-            "metrics": analysis.metrics or {},
-            "summary": analysis.summary or "",
+            "repository_id": str(analysis.repository_id),
+            "issues": normalized_issues,
+            "metrics": metrics_payload,
+            "summary": raw_results.get("summary_message")
+            or raw_results.get("summary")
+            or raw_results.get("message")
+            or "",
+            "suggestions": raw_results.get("suggestions") or [],
             "created_at": analysis.created_at.isoformat(),
             "completed_at": analysis.completed_at.isoformat() if analysis.completed_at else None,
-            "processing_time": analysis.processing_time_ms or None
+            "processing_time": raw_results.get("processing_time")
+            or raw_results.get("processing_time_ms")
+            or None,
+            "issues_count": analysis.issues_found or len(normalized_issues),
+            "errors_count": analysis.errors_count or 0,
+            "warnings_count": analysis.warnings_count or 0,
+            "analysis_results": raw_results,
         }
+
+        return response_data
 
     except HTTPException as he:
         logger.error(f"HTTPException in get_repository_analysis: {str(he)}")
@@ -1809,4 +1915,3 @@ async def get_repository_analysis(
             status_code=500,
             detail=f"An error occurred while fetching the repository analysis: {str(e)}"
         )
-        raise HTTPException(status_code=500, detail="Failed to retrieve repository analysis")

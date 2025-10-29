@@ -335,15 +335,7 @@ export function Dashboard() {
       color: 'bg-red-500',
       description: 'Total issues detected',
       trend: dashboardData?.userStats?.issuesTrend || null,
-    },
-    {
-      name: 'Files Analyzed',
-      value: dashboardData?.userStats?.totalReviews || 0,
-      icon: FileTextIcon,
-      color: 'bg-blue-500',
-      description: 'Files analyzed',
-      trend: dashboardData?.userStats?.reviewsTrend || null,
-    },
+    },  
     {
       name: 'Success Rate',
       value: `${Math.round(dashboardData?.userStats?.successRate || 0)}%`,
@@ -479,15 +471,7 @@ export function Dashboard() {
                       name === 'rejected' ? 'Rejected' : name
                     ]}
                   />
-                  <Area
-                    type="monotone"
-                    dataKey="reviews"
-                    stackId="1"
-                    stroke="#3B82F6"
-                    fill="#3B82F6"
-                    fillOpacity={0.6}
-                    name="Reviews"
-                  />
+                 
                   <Area
                     type="monotone"
                     dataKey="accepted"
@@ -500,10 +484,6 @@ export function Dashboard() {
                 </AreaChart>
               </ResponsiveContainer>
               <div className="flex justify-center mt-4 space-x-6">
-                <div className="flex items-center">
-                  <div className="w-3 h-3 rounded-full bg-blue-500 mr-2"></div>
-                  <span className="text-sm text-gray-600">Reviews</span>
-                </div>
                 <div className="flex items-center">
                   <div className="w-3 h-3 rounded-full bg-green-500 mr-2"></div>
                   <span className="text-sm text-gray-600">Accepted</span>
@@ -579,21 +559,6 @@ export function Dashboard() {
       </div>
 
       {/* Issue Trends and Criticality Distribution */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Issue Trends Chart */}
-        <IssueTrendsChart 
-          data={issueTrendsData}
-          timeframe={timeframe}
-          loading={chartsLoading}
-        />
-
-        {/* Criticality Distribution Chart */}
-        <CriticalityDistributionChart 
-          data={criticalityData}
-          timeframe={timeframe}
-          loading={chartsLoading}
-        />
-      </div>
 
       {/* Performance Metrics */}
       <div className="bg-white rounded-lg shadow p-6 transition-colors duration-200">

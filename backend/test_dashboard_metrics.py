@@ -5,7 +5,7 @@ import json
 
 # Test the dashboard metrics endpoint
 url = "http://localhost:8000/api/v1/admin/analytics/dashboard-metrics"
-token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJyZXZhbmtva2tpcmFsYUBnbWFpbC5jb20iLCJyb2xlIjoiYWRtaW4iLCJleHAiOjE3NjE0OTMxMTksImlhdCI6MTc2MTQ5MTMxOSwidHlwZSI6ImFjY2VzcyJ9.Cxl9kTC4LURgDdgMfHy9HK6pBmqMSxYnvg22BXsr_z4"
+token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJyYWNoYXByYW5hdmFuYWRoQGdtYWlsLmNvbSIsInJvbGUiOiJhZG1pbiIsImV4cCI6MTc2MTY3NjU3NywiaWF0IjoxNzYxNjc0Nzc3LCJ0eXBlIjoiYWNjZXNzIn0.eIoz9tNhmjM0oBjTPIxWBwfT8cZjBtQY1sTj5-5DQwM"
 
 headers = {"Authorization": f"Bearer {token}"}
 

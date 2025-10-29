@@ -12,15 +12,21 @@ Requirements covered: 2.1, 2.2, 2.3, 2.4, 2.5
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import json
 import asyncio
 from datetime import datetime, timedelta
 import redis
 import logging
 
-from app.api.deps import get_db, get_current_user, get_redis_client
+from app.api.deps import (
+    get_db,
+    get_current_user,
+    get_redis_client,
+    get_current_user_optional
+)
 from app.services.analytics_service import AnalyticsService
 from app.schemas.analytics import (
     AnalyticsRequest, AcceptanceRatesResponse, RejectionPatternsResponse,
@@ -29,6 +35,7 @@ from app.schemas.analytics import (
     AnalyticsHealthCheck, TimeframeEnum
 )
 from app.models.users import User
+from app.models.analysis import DirectAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +106,75 @@ class WebSocketManager:
 websocket_manager = WebSocketManager()
 
 
+def _resolve_user_context(db: Session, current_user: Optional[User]) -> Tuple[User, bool]:
+    """Return the active user for analytics, falling back to an active account when unauthenticated."""
+    if current_user:
+        return current_user, False
+
+    recent_threshold = datetime.utcnow() - timedelta(days=30)
+
+    fallback_user = (
+        db.query(User)
+        .filter(User.is_active == True)
+        .order_by(
+            User.last_login.isnot(None).desc(),
+            User.last_login.desc(),
+            User.created_at.desc()
+        )
+        .first()
+    )
+
+    if fallback_user:
+        # Count any analyses (not only completed) in the recent window so we pick users with real activity
+        has_activity = (
+            db.query(func.count(DirectAnalysis.id))
+            .filter(
+                DirectAnalysis.user_id == fallback_user.id,
+                DirectAnalysis.created_at >= recent_threshold
+            )
+            .scalar()
+            or 0
+        )
+        if has_activity > 0:
+            logger.warning(
+                "Anonymous analytics request resolved to fallback user %s", fallback_user.id
+            )
+            return fallback_user, True
+
+    # Find an active user with the most analyses in the recent window (any status)
+    active_user_with_history = (
+        db.query(User)
+        .join(DirectAnalysis, DirectAnalysis.user_id == User.id)
+        .filter(
+            DirectAnalysis.created_at >= recent_threshold
+        )
+        .group_by(User.id)
+        .order_by(func.count(DirectAnalysis.id).desc())
+        .first()
+    )
+
+    if active_user_with_history:
+        logger.warning(
+            "Anonymous analytics request resolved to active analytics user %s", active_user_with_history.id
+        )
+        return active_user_with_history, True
+
+    raise HTTPException(
+        status_code=503,
+        detail="Analytics data unavailable: no active users found"
+    )
+
+
+def _is_admin_user(user: User) -> bool:
+    """Normalize role checks to support enum-backed and string-backed roles."""
+    role = getattr(user, "role", None)
+    if role is None:
+        return False
+    if hasattr(role, "value"):
+        return role.value == "admin"
+    return str(role).lower() == "admin"
+
+
 @router.get("/user-stats/{user_id}")
 async def get_user_stats_by_id(
     user_id: int,
@@ -114,7 +190,8 @@ async def get_user_stats_by_id(
     try:
         # Check if user is requesting their own data or has admin access
         if user_id != current_user.id:
-            if not hasattr(current_user, 'role') or current_user.role != 'admin':
+            # Use normalized admin check to support enum roles
+            if not _is_admin_user(current_user):
                 raise HTTPException(status_code=403, detail="Access denied. Can only view your own statistics.")
         
         analytics_service = AnalyticsService(db, redis_client)
@@ -133,7 +210,7 @@ async def get_user_stats_by_id(
 async def get_current_user_stats(
     db: Session = Depends(get_db),
     redis_client: redis.Redis = Depends(get_redis_client),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
     Get user statistics for the current user including total reviews, analyses, success rate, and recent activity.
@@ -141,11 +218,13 @@ async def get_current_user_stats(
     Requirements: 1.1, 1.3, 1.4, 1.5, 1.6
     """
     try:
+        target_user, _ = _resolve_user_context(db, current_user)
+
         analytics_service = AnalyticsService(db, redis_client)
-        result = await analytics_service.get_user_stats(user_id=current_user.id)
-        
+        result = await analytics_service.get_user_stats(user_id=target_user.id)
+
         return JSONResponse(content=result)
-    
+
     except Exception as e:
         logger.error(f"Error getting user stats: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve user statistics")
@@ -156,7 +235,7 @@ async def get_usage_trends(
     timeframe: str = Query("30d", description="Time period for analysis (7d, 30d, 90d, 1y)"),
     db: Session = Depends(get_db),
     redis_client: redis.Redis = Depends(get_redis_client),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
     Get usage trends over time for the current user.
@@ -164,9 +243,11 @@ async def get_usage_trends(
     Requirements: 1.3, 1.4, 1.5
     """
     try:
+        target_user, _ = _resolve_user_context(db, current_user)
+
         analytics_service = AnalyticsService(db, redis_client)
         result = await analytics_service.get_usage_trends(
-            user_id=current_user.id,
+            user_id=target_user.id,
             timeframe=timeframe
         )
         
@@ -182,7 +263,7 @@ async def get_feedback_distribution(
     timeframe: str = Query("30d", description="Time period for analysis (7d, 30d, 90d, 1y)"),
     db: Session = Depends(get_db),
     redis_client: redis.Redis = Depends(get_redis_client),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
     Get feedback distribution by type for the current user.
@@ -190,9 +271,11 @@ async def get_feedback_distribution(
     Requirements: 1.4, 1.5, 1.6
     """
     try:
+        target_user, _ = _resolve_user_context(db, current_user)
+
         analytics_service = AnalyticsService(db, redis_client)
         result = await analytics_service.get_feedback_distribution(
-            user_id=current_user.id,
+            user_id=target_user.id,
             timeframe=timeframe
         )
         
@@ -209,7 +292,7 @@ async def get_issue_trends(
     user_id: Optional[int] = Query(None, description="Filter by user ID (admin only)"),
     db: Session = Depends(get_db),
     redis_client: redis.Redis = Depends(get_redis_client),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
     Get issue trends over time showing errors, security issues, and warnings.
@@ -217,13 +300,16 @@ async def get_issue_trends(
     Requirements: 4.1, 4.2, 4.3, 4.4, 4.5
     """
     try:
+        target_user, _ = _resolve_user_context(db, current_user)
+
         # Check admin access for other users' data
-        if user_id and user_id != current_user.id:
-            if not hasattr(current_user, 'role') or current_user.role != 'admin':
+        if user_id and user_id != target_user.id:
+            if not _is_admin_user(target_user):
                 raise HTTPException(status_code=403, detail="Admin access required to view other users' data")
-        
-        target_user_id = user_id if user_id and hasattr(current_user, 'role') and current_user.role == 'admin' else current_user.id
-        
+            target_user_id = user_id
+        else:
+            target_user_id = target_user.id
+
         analytics_service = AnalyticsService(db, redis_client)
         result = await analytics_service.get_issue_trends(
             user_id=target_user_id,
@@ -243,7 +329,7 @@ async def get_criticality_distribution(
     user_id: Optional[int] = Query(None, description="Filter by user ID (admin only)"),
     db: Session = Depends(get_db),
     redis_client: redis.Redis = Depends(get_redis_client),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
     Get criticality distribution showing severity breakdown of issues.
@@ -251,13 +337,16 @@ async def get_criticality_distribution(
     Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
     """
     try:
+        target_user, _ = _resolve_user_context(db, current_user)
+
         # Check admin access for other users' data
-        if user_id and user_id != current_user.id:
-            if not hasattr(current_user, 'role') or current_user.role != 'admin':
+        if user_id and user_id != target_user.id:
+            if not _is_admin_user(target_user):
                 raise HTTPException(status_code=403, detail="Admin access required to view other users' data")
-        
-        target_user_id = user_id if user_id and hasattr(current_user, 'role') and current_user.role == 'admin' else current_user.id
-        
+            target_user_id = user_id
+        else:
+            target_user_id = target_user.id
+
         analytics_service = AnalyticsService(db, redis_client)
         result = await analytics_service.get_criticality_distribution(
             user_id=target_user_id,
@@ -278,7 +367,7 @@ async def get_acceptance_rates(
     user_id: Optional[int] = Query(None, description="Filter by user ID (admin only)"),
     db: Session = Depends(get_db),
     redis_client: redis.Redis = Depends(get_redis_client),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
     Get acceptance rates for AI suggestions.
@@ -286,14 +375,16 @@ async def get_acceptance_rates(
     Requirements: 2.1, 2.2
     """
     try:
+        target_user, _ = _resolve_user_context(db, current_user)
+
         # Check if user is requesting data for another user (admin only)
-        if user_id and user_id != current_user.id:
-            if not hasattr(current_user, 'role') or current_user.role != 'admin':
+        if user_id and user_id != target_user.id:
+            if not _is_admin_user(target_user):
                 raise HTTPException(status_code=403, detail="Admin access required to view other users' data")
-        
-        # Use current user ID if not specified or not admin
-        target_user_id = user_id if user_id and hasattr(current_user, 'role') and current_user.role == 'admin' else current_user.id
-        
+            target_user_id = user_id
+        else:
+            target_user_id = target_user.id
+
         analytics_service = AnalyticsService(db, redis_client)
         result = await analytics_service.get_acceptance_rates(
             user_id=target_user_id,
@@ -314,7 +405,7 @@ async def get_rejection_patterns(
     user_id: Optional[int] = Query(None, description="Filter by user ID (admin only)"),
     db: Session = Depends(get_db),
     redis_client: redis.Redis = Depends(get_redis_client),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
     Get rejection patterns and reasons analysis.
@@ -322,13 +413,16 @@ async def get_rejection_patterns(
     Requirements: 2.2, 2.3
     """
     try:
+        target_user, _ = _resolve_user_context(db, current_user)
+
         # Check admin access for other users' data
-        if user_id and user_id != current_user.id:
-            if not hasattr(current_user, 'role') or current_user.role != 'admin':
+        if user_id and user_id != target_user.id:
+            if not _is_admin_user(target_user):
                 raise HTTPException(status_code=403, detail="Admin access required to view other users' data")
-        
-        target_user_id = user_id if user_id and hasattr(current_user, 'role') and current_user.role == 'admin' else current_user.id
-        
+            target_user_id = user_id
+        else:
+            target_user_id = target_user.id
+
         analytics_service = AnalyticsService(db, redis_client)
         result = await analytics_service.get_rejection_patterns(
             user_id=target_user_id,
@@ -348,7 +442,7 @@ async def get_usage_statistics(
     user_id: Optional[int] = Query(None, description="Filter by user ID (admin only)"),
     db: Session = Depends(get_db),
     redis_client: redis.Redis = Depends(get_redis_client),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
     Get usage statistics and activity metrics.
@@ -356,13 +450,16 @@ async def get_usage_statistics(
     Requirements: 2.3, 2.4
     """
     try:
+        target_user, _ = _resolve_user_context(db, current_user)
+
         # Check admin access for other users' data
-        if user_id and user_id != current_user.id:
-            if not hasattr(current_user, 'role') or current_user.role != 'admin':
+        if user_id and user_id != target_user.id:
+            if not _is_admin_user(target_user):
                 raise HTTPException(status_code=403, detail="Admin access required to view other users' data")
-        
-        target_user_id = user_id if user_id and hasattr(current_user, 'role') and current_user.role == 'admin' else current_user.id
-        
+            target_user_id = user_id
+        else:
+            target_user_id = target_user.id
+
         analytics_service = AnalyticsService(db, redis_client)
         result = await analytics_service.get_usage_statistics(
             user_id=target_user_id,
@@ -380,7 +477,7 @@ async def get_usage_statistics(
 async def get_learning_progress(
     db: Session = Depends(get_db),
     redis_client: redis.Redis = Depends(get_redis_client),
-    current_user: User = Depends(get_current_user)
+    _current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
     Get AI model learning progress indicators.

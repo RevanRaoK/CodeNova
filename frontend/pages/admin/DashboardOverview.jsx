@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Users, Shield, BarChart3, Activity, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Users, Shield, BarChart3, Activity, AlertCircle, CheckCircle, XCircle, Filter } from 'lucide-react';
 import adminService from '../../services/adminService.js';
 
 /**
@@ -10,6 +10,8 @@ const DashboardOverview = () => {
   const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const [activeSeverity, setActiveSeverity] = useState('all');
+  const [activeCategory, setActiveCategory] = useState('all');
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -18,6 +20,13 @@ const DashboardOverview = () => {
 
   useEffect(() => {
     loadDashboardMetrics();
+    
+    // Set up realtime updates every 30 seconds
+    const interval = setInterval(() => {
+      loadDashboardMetrics();
+    }, 30000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   const loadDashboardMetrics = async () => {
@@ -48,6 +57,113 @@ const DashboardOverview = () => {
       return (num / 1000).toFixed(1) + 'K';
     }
     return num?.toString() || '0';
+  };
+
+  const issueSummary = useMemo(() => {
+    if (!metrics?.issue_breakdown) return [];
+    return metrics.issue_breakdown.map(entry => ({
+      severity: entry.severity?.toLowerCase() || 'unknown',
+      category: entry.category?.toLowerCase() || 'general',
+      count: entry.count ?? 0,
+      description: entry.description || '',
+    }));
+  }, [metrics]);
+
+  const filteredIssues = useMemo(() => {
+    return issueSummary.filter(issue => {
+      const severityMatch = activeSeverity === 'all' || issue.severity === activeSeverity;
+      const categoryMatch = activeCategory === 'all' || issue.category === activeCategory;
+      return severityMatch && categoryMatch;
+    });
+  }, [issueSummary, activeSeverity, activeCategory]);
+
+  const severityOptions = useMemo(() => {
+    const base = new Set(['all']);
+    issueSummary.forEach(issue => base.add(issue.severity));
+    return Array.from(base);
+  }, [issueSummary]);
+
+  const categoryOptions = useMemo(() => {
+    const base = new Set(['all']);
+    issueSummary.forEach(issue => base.add(issue.category));
+    return Array.from(base);
+  }, [issueSummary]);
+
+  const severityLabel = {
+    critical: 'Critical',
+    high: 'High',
+    medium: 'Medium',
+    low: 'Low',
+    info: 'Info',
+    suggestion: 'Suggestion',
+    all: 'All Severities',
+  };
+
+  const categoryLabel = {
+    security: 'Security',
+    architecture: 'Architecture',
+    semantic: 'Semantic',
+    syntax: 'Syntax',
+    performance: 'Performance',
+    style: 'Style',
+    documentation: 'Documentation',
+    testing: 'Testing',
+    general: 'General',
+    all: 'All Categories',
+  };
+
+  const resetFilters = () => {
+    setActiveSeverity('all');
+    setActiveCategory('all');
+  };
+
+  const renderIssueList = () => {
+    if (!issueSummary.length) {
+      return (
+        <div className="text-center py-10 text-gray-500">
+          <Activity className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+          <p>No analysis issues available yet.</p>
+        </div>
+      );
+    }
+
+    if (!filteredIssues.length) {
+      return (
+        <div className="text-center py-10 text-gray-500">
+          <Filter className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+          <p>No issues match the selected filters.</p>
+          <button
+            onClick={resetFilters}
+            className="mt-4 inline-flex items-center px-4 py-2 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+          >
+            Reset filters
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        {filteredIssues.map((issue, idx) => (
+          <div key={`${issue.category}-${issue.severity}-${idx}`} className="p-4 border border-gray-200 rounded-lg bg-white shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-gray-800 capitalize">
+                  {categoryLabel[issue.category] || issue.category}
+                </p>
+                <p className="text-xs text-gray-500 mt-1 capitalize">
+                  Severity: {severityLabel[issue.severity] || issue.severity}
+                </p>
+              </div>
+              <span className="text-lg font-bold text-gray-900">{issue.count}</span>
+            </div>
+            {issue.description && (
+              <p className="text-sm text-gray-600 mt-3">{issue.description}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    );
   };
 
   return (
@@ -186,74 +302,58 @@ const DashboardOverview = () => {
               </div>
             </div>
 
-            {/* Recent Activity */}
+            {/* Analysis Issues Summary with Quick Filters */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-medium text-gray-900">
-                  Recent Activity
-                </h3>
+              <div className="px-6 py-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900">Analysis Issues</h3>
+                  <p className="text-sm text-gray-500">Use quick filters to narrow down by severity and category.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs uppercase tracking-wide text-gray-500 flex items-center">
+                      <Filter className="h-4 w-4 mr-1" /> Severity
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {severityOptions.map(option => (
+                        <button
+                          key={option}
+                          onClick={() => setActiveSeverity(option)}
+                          className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors duration-150 ${
+                            activeSeverity === option
+                              ? 'bg-blue-600 text-white border-blue-600 shadow'
+                              : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600'
+                          }`}
+                        >
+                          {severityLabel[option] || option}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs uppercase tracking-wide text-gray-500 flex items-center">
+                      <Filter className="h-4 w-4 mr-1" /> Category
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {categoryOptions.map(option => (
+                        <button
+                          key={option}
+                          onClick={() => setActiveCategory(option)}
+                          className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors duration-150 ${
+                            activeCategory === option
+                              ? 'bg-blue-600 text-white border-blue-600 shadow'
+                              : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:text-blue-600'
+                          }`}
+                        >
+                          {categoryLabel[option] || option}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
               <div className="p-6">
-                {metrics?.recent_activity && typeof metrics.recent_activity === 'object' ? (
-                  <div className="space-y-4">
-                    {metrics.recent_activity.new_users_30d > 0 && (
-                      <div className="flex items-center space-x-3">
-                        <div className="flex-shrink-0">
-                          <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center">
-                            <Users className="h-4 w-4 text-blue-600" />
-                          </div>
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-sm text-gray-900">
-                            {metrics.recent_activity.new_users_30d} new user{metrics.recent_activity.new_users_30d !== 1 ? 's' : ''} joined in the last 30 days
-                          </p>
-                          <p className="text-xs text-gray-500">Last 30 days</p>
-                        </div>
-                      </div>
-                    )}
-                    {metrics.recent_activity.new_analyses_30d > 0 && (
-                      <div className="flex items-center space-x-3">
-                        <div className="flex-shrink-0">
-                          <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center">
-                            <BarChart3 className="h-4 w-4 text-purple-600" />
-                          </div>
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-sm text-gray-900">
-                            {metrics.recent_activity.new_analyses_30d} new analys{metrics.recent_activity.new_analyses_30d !== 1 ? 'es' : 'is'} completed in the last 30 days
-                          </p>
-                          <p className="text-xs text-gray-500">Last 30 days</p>
-                        </div>
-                      </div>
-                    )}
-                    {metrics.recent_activity.active_users_30d > 0 && (
-                      <div className="flex items-center space-x-3">
-                        <div className="flex-shrink-0">
-                          <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center">
-                            <Activity className="h-4 w-4 text-green-600" />
-                          </div>
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-sm text-gray-900">
-                            {metrics.recent_activity.active_users_30d} user{metrics.recent_activity.active_users_30d !== 1 ? 's' : ''} active in the last 30 days
-                          </p>
-                          <p className="text-xs text-gray-500">Last 30 days</p>
-                        </div>
-                      </div>
-                    )}
-                    {(!metrics.recent_activity.new_users_30d && !metrics.recent_activity.new_analyses_30d && !metrics.recent_activity.active_users_30d) && (
-                      <div className="text-center py-8">
-                        <Activity className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                        <p className="text-gray-600">No recent activity in the last 30 days</p>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <Activity className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                    <p className="text-gray-600">No recent activity</p>
-                  </div>
-                )}
+                {renderIssueList()}
               </div>
             </div>
           </>

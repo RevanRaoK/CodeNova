@@ -53,9 +53,9 @@ api_router.include_router(integration.router, prefix="/integration", tags=["Inte
 
 # Admin & Monitoring
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])
-api_router.include_router(admin_teams.router, prefix="/admin", tags=["Admin Teams"])
-api_router.include_router(admin_users.router, prefix="/admin", tags=["Admin Users"])
-api_router.include_router(admin_analytics.router, prefix="/admin/analytics", tags=["Admin Analytics"])
+# api_router.include_router(admin_teams.router, prefix="/admin", tags=["Admin Teams"])
+# api_router.include_router(admin_users.router, prefix="/admin", tags=["Admin Users"])
+# api_router.include_router(admin_analytics.router, prefix="/admin/analytics", tags=["Admin Analytics"])
 api_router.include_router(audit_logs.router, prefix="/admin", tags=["Audit Logs"])
 api_router.include_router(monitoring.router, prefix="/monitoring", tags=["Monitoring"])
 api_router.include_router(config_validation.router, prefix="/config", tags=["Configuration Validation"])

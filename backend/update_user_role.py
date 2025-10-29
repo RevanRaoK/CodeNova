@@ -33,7 +33,7 @@ try:
             SET role = 'ADMIN', updated_at = NOW()
             WHERE email = :email
             RETURNING id, email, full_name, role, is_active
-        """), {"email": "revankokkirala@gmail.com"})
+        """), {"email": "rachapranavanadh@gmail.com"})
         
         updated_user = result.fetchone()
         db.commit()
@@ -50,7 +50,7 @@ try:
     
     print("\n🎉 User is now an admin!")
     print("You can login at: http://localhost:5173/admin/login")
-    print("Credentials: revankokkirala@gmail.com / Test@123")
+    # print("Credentials: revankokkirala@gmail.com / Test@123")
     
 except Exception as e:
     print(f"❌ Error: {e}")

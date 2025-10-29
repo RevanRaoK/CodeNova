@@ -3,132 +3,146 @@ Check the issues table specifically for feedback functionality.
 """
 import asyncio
 from sqlalchemy import select, text
-from app.core.database import AsyncSessionLocal
-from app.models.github_integration import Issue, PRAnalysis
+"""Detailed checks for the issues table and related feedback records."""
 
-async def check_issues_table():
-    """Check issues table and feedback functionality."""
-    
+import asyncio
+from typing import Dict
+
+from sqlalchemy import func, select, text
+
+from app.core.database import AsyncSessionLocal
+from app.models.analysis import DirectAnalysis
+from app.models.feedback import FeedbackRecord, Issue
+
+
+async def check_issues_table() -> None:
+    """Inspect stored issues to ensure feedback and relationships look healthy."""
+
     print("=" * 80)
     print("ISSUES TABLE VERIFICATION")
     print("=" * 80)
     print()
-    
+
     async with AsyncSessionLocal() as session:
-        # Get total count
-        result = await session.execute(select(Issue))
+        # Fetch all issues (most recent first for easier reading)
+        result = await session.execute(select(Issue).order_by(Issue.created_at.desc()))
         all_issues = result.scalars().all()
-        
+
         print(f"Total issues in database: {len(all_issues)}")
         print()
-        
+
         if not all_issues:
             print("⚠️  No issues found in database!")
             print("This might be why feedback is failing.")
             return
-        
-        # Check recent issues
-        print("Recent issues (last 10):")
+
+        # Pre-compute feedback counts per issue for quick lookups
+        feedback_counts: Dict[str, int] = {}
+        feedback_result = await session.execute(
+            select(FeedbackRecord.issue_id, func.count())
+            .group_by(FeedbackRecord.issue_id)
+        )
+        feedback_counts = dict(feedback_result.all())
+
+        # Show a sample of the newest issues
+        print("Recent issues (newest 10):")
         print("-" * 80)
-        
-        for issue in all_issues[-10:]:
+
+        for issue in all_issues[:10]:
+            location = issue.location or {}
+            line_info = location.get("line") or location.get("start_line")
+            context_preview_lines = (issue.code_context or "").splitlines()
+            context_preview = context_preview_lines[0] if context_preview_lines else "(no context)"
+
             print(f"\nIssue ID: {issue.id}")
-            print(f"  PR Analysis ID: {issue.pr_analysis_id}")
-            print(f"  File: {issue.file_path}")
-            print(f"  Line: {issue.line_number}")
+            print(f"  Analysis ID: {issue.analysis_id}")
+            print(f"  Pattern: {issue.pattern_type}")
             print(f"  Severity: {issue.severity}")
-            print(f"  Status: {issue.status}")
-            print(f"  Feedback: {issue.feedback or '(none)'}")
-            print(f"  Issue Hash: {issue.issue_hash or '(none)'}")
-            print(f"  Message: {issue.message[:100]}...")
-        
-        # Check for issues with feedback
+            print(f"  Status: {issue.status or 'unknown'}")
+            print(f"  Confidence: {issue.confidence_score if issue.confidence_score is not None else 'n/a'}")
+            print(f"  Line/Range: {line_info or '(unspecified)'}")
+            print(f"  Feedback records: {feedback_counts.get(issue.id, 0)}")
+            print(f"  Suggestion preview: {issue.suggestion_text[:80]}...")
+            print(f"  Context preview: {context_preview[:80]}...")
+
+        # Count issues that already have feedback records
         result = await session.execute(
-            select(Issue).where(Issue.feedback.isnot(None))
+            select(Issue.id)
+            .join(FeedbackRecord, FeedbackRecord.issue_id == Issue.id)
+            .group_by(Issue.id)
         )
-        issues_with_feedback = result.scalars().all()
-        
+        issues_with_feedback = [row[0] for row in result.all()]
+
         print(f"\n\nIssues with feedback: {len(issues_with_feedback)}")
-        
-        # Check for issues without pr_analysis
-        result = await session.execute(text("""
-            SELECT i.id, i.pr_analysis_id, i.file_path
+        if issues_with_feedback:
+            sample_ids = ", ".join(issues_with_feedback[:10])
+            print(f"  Sample IDs: {sample_ids}")
+
+        # Ensure each issue still has its originating direct analysis
+        result = await session.execute(text(
+            """
+            SELECT i.id, i.analysis_id
             FROM issues i
-            LEFT JOIN pr_analyses pa ON i.pr_analysis_id = pa.id
-            WHERE pa.id IS NULL
-        """))
+            LEFT JOIN direct_analyses da ON i.analysis_id = da.id
+            WHERE da.id IS NULL
+            """
+        ))
         orphaned = result.fetchall()
-        
+
         if orphaned:
-            print(f"\n⚠️  Found {len(orphaned)} orphaned issues (pr_analysis doesn't exist):")
-            for issue_id, pr_id, file_path in orphaned[:5]:
-                print(f"  - Issue {issue_id}: pr_analysis_id={pr_id}, file={file_path}")
+            print(f"\n⚠️  Found {len(orphaned)} orphaned issues (analysis_id missing in direct_analyses):")
+            for issue_id, analysis_id in orphaned[:5]:
+                print(f"  - Issue {issue_id}: analysis_id={analysis_id}")
         else:
-            print("\n✓ All issues have valid pr_analysis_id")
-        
-        # Check for issues without issue_hash
-        result = await session.execute(
-            select(Issue).where(Issue.issue_hash.is_(None))
-        )
-        no_hash = result.scalars().all()
-        
-        if no_hash:
-            print(f"\n⚠️  Found {len(no_hash)} issues without issue_hash")
-            print("  This might cause problems with issue tracking")
-        else:
-            print("\n✓ All issues have issue_hash")
-        
-        # Check pr_analyses with issues
+            print("\n✓ All issues reference valid direct analyses")
+
+        # Aggregate direct analyses that currently have issues stored
         print(f"\n\n{'=' * 80}")
-        print("PR ANALYSES WITH ISSUES")
+        print("DIRECT ANALYSES WITH ISSUES")
         print(f"{'=' * 80}\n")
-        
+
         result = await session.execute(
-            select(PRAnalysis).where(PRAnalysis.issues_found > 0)
-        )
-        analyses_with_issues = result.scalars().all()
-        
-        print(f"PR Analyses with issues: {len(analyses_with_issues)}")
-        
-        for analysis in analyses_with_issues[-5:]:
-            print(f"\nAnalysis ID: {analysis.id}")
-            print(f"  Repository: {analysis.repository_id}")
-            print(f"  PR Number: {analysis.pr_number}")
-            print(f"  Status: {analysis.status}")
-            print(f"  Issues Found: {analysis.issues_found}")
-            
-            # Count actual issues
-            result = await session.execute(
-                select(Issue).where(Issue.pr_analysis_id == analysis.id)
+            select(
+                DirectAnalysis.id,
+                DirectAnalysis.user_id,
+                DirectAnalysis.language,
+                DirectAnalysis.status,
+                func.count(Issue.id).label("issue_count"),
             )
-            actual_issues = result.scalars().all()
-            print(f"  Actual Issues in DB: {len(actual_issues)}")
-            
-            if analysis.issues_found != len(actual_issues):
-                print(f"  ⚠️  MISMATCH: issues_found={analysis.issues_found} but actual={len(actual_issues)}")
-        
-        # Test issue lookup by ID
+            .join(Issue, Issue.analysis_id == DirectAnalysis.id)
+            .group_by(DirectAnalysis.id)
+            .order_by(func.count(Issue.id).desc())
+        )
+        analysis_rows = result.all()
+
+        print(f"Direct analyses that generated issues: {len(analysis_rows)}")
+
+        for row in analysis_rows[:5]:
+            da_id, user_id, language, status, issue_count = row
+            print(f"\nDirectAnalysis ID: {da_id}")
+            print(f"  User ID: {user_id}")
+            print(f"  Language: {language}")
+            print(f"  Status: {status}")
+            print(f"  Issues Stored: {issue_count}")
+
+        # Spot-check issue lookup by ID to verify query paths still work
         print(f"\n\n{'=' * 80}")
         print("TESTING ISSUE LOOKUP")
         print(f"{'=' * 80}\n")
-        
-        if all_issues:
-            test_issue = all_issues[0]
-            print(f"Testing lookup for issue ID: {test_issue.id}")
-            
-            # Try to fetch it
-            result = await session.execute(
-                select(Issue).where(Issue.id == test_issue.id)
-            )
-            found = result.scalar_one_or_none()
-            
-            if found:
-                print(f"✓ Successfully found issue by ID")
-                print(f"  File: {found.file_path}")
-                print(f"  Message: {found.message[:100]}...")
-            else:
-                print(f"❌ Could not find issue by ID!")
-        
+
+        test_issue = all_issues[0]
+        print(f"Testing lookup for issue ID: {test_issue.id}")
+
+        lookup = await session.execute(select(Issue).where(Issue.id == test_issue.id))
+        found = lookup.scalar_one_or_none()
+
+        if found:
+            print("✓ Successfully found issue by ID")
+            print(f"  Pattern: {found.pattern_type}")
+            print(f"  Suggestion preview: {found.suggestion_text[:100]}...")
+        else:
+            print("❌ Could not find issue by ID!")
+
         print(f"\n{'=' * 80}")
         print("VERIFICATION COMPLETE")
         print(f"{'=' * 80}\n")

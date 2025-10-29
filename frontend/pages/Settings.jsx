@@ -930,6 +930,26 @@ export function Settings() {
   const [validationErrors, setValidationErrors] = useState({});
   const [isFormValid, setIsFormValid] = useState(true);
 
+  const GENERAL_PREF_FIELDS = ['defaultProgrammingLanguage', 'timezone'];
+  const NOTIFICATION_FIELDS = ['frequency'];
+  const SECURITY_FIELDS = ['sessionTimeout'];
+
+  const updateValidationErrorsForFields = (fields, errors = {}) => {
+    setValidationErrors((prev) => {
+      const next = { ...prev };
+      fields.forEach((field) => {
+        if (errors[field]) {
+          next[field] = errors[field];
+        } else {
+          delete next[field];
+        }
+      });
+      return next;
+    });
+  };
+
+  const hasActiveValidationErrors = Object.values(validationErrors).some(Boolean);
+
   // General preferences state
   const [generalPrefs, setGeneralPrefs] = useState({
     defaultProgrammingLanguage: 'javascript',
@@ -1187,11 +1207,7 @@ export function Settings() {
     
     // Real-time validation
     const errors = validateGeneralPrefs(newPrefs);
-    setValidationErrors((prev) => ({
-      ...prev,
-      ...errors,
-      [field]: errors[field] || null,
-    }));
+    updateValidationErrorsForFields(GENERAL_PREF_FIELDS, errors);
     
     setIsFormValid(Object.keys(errors).length === 0);
   };
@@ -1209,10 +1225,7 @@ export function Settings() {
     
     // Real-time validation for notification preferences
     const errors = validateNotificationPrefs(newPrefs);
-    setValidationErrors((prev) => ({
-      ...prev,
-      ...errors,
-    }));
+    updateValidationErrorsForFields(NOTIFICATION_FIELDS, errors);
   };
 
   const handleSecuritySettingsChange = (field, value) => {
@@ -1225,10 +1238,7 @@ export function Settings() {
     
     // Real-time validation for security settings
     const errors = validateSecuritySettings(newSettings);
-    setValidationErrors((prev) => ({
-      ...prev,
-      ...errors,
-    }));
+    updateValidationErrorsForFields(SECURITY_FIELDS, errors);
   };
 
   const handleGeneralSubmit = async (e) => {
@@ -1236,7 +1246,7 @@ export function Settings() {
     
     // Validate form before submission
     const errors = validateGeneralPrefs(generalPrefs);
-    setValidationErrors(errors);
+    updateValidationErrorsForFields(GENERAL_PREF_FIELDS, errors);
     
     if (Object.keys(errors).length > 0) {
       setIsFormValid(false);
@@ -1256,7 +1266,7 @@ export function Settings() {
         if (success) {
           showToast('General settings updated successfully', 'success');
           // Clear any previous validation errors on successful save
-          setValidationErrors({});
+          updateValidationErrorsForFields(GENERAL_PREF_FIELDS, {});
           return true;
         } else {
           throw new Error('Failed to update general settings');
@@ -1294,7 +1304,7 @@ export function Settings() {
     
     // Validate notification preferences before submission
     const errors = validateNotificationPrefs(notificationPrefs);
-    setValidationErrors(errors);
+    updateValidationErrorsForFields(NOTIFICATION_FIELDS, errors);
     
     if (Object.keys(errors).length > 0) {
       showToast('Please fix the validation errors before saving', 'error');
@@ -1310,7 +1320,7 @@ export function Settings() {
         const success = await updateNotificationPreferences(notificationPrefs);
         if (success) {
           showToast('Notification preferences updated successfully', 'success');
-          setValidationErrors({});
+          updateValidationErrorsForFields(NOTIFICATION_FIELDS, {});
           return true;
         } else {
           throw new Error('Failed to update notification preferences');
@@ -1346,7 +1356,7 @@ export function Settings() {
     
     // Validate security settings before submission
     const errors = validateSecuritySettings(securitySettings);
-    setValidationErrors(errors);
+    updateValidationErrorsForFields(SECURITY_FIELDS, errors);
     
     if (Object.keys(errors).length > 0) {
       showToast('Please fix the validation errors before saving', 'error');
@@ -1362,7 +1372,7 @@ export function Settings() {
         const success = await updateSecuritySettings(securitySettings);
         if (success) {
           showToast('Security settings updated successfully', 'success');
-          setValidationErrors({});
+          updateValidationErrorsForFields(SECURITY_FIELDS, {});
           return true;
         } else {
           throw new Error('Failed to update security settings');
@@ -1625,7 +1635,7 @@ export function Settings() {
                     <div className="flex justify-end">
                       <button
                         type="submit"
-                        disabled={isSaving || !isFormValid || Object.keys(validationErrors).length > 0}
+                        disabled={isSaving || !isFormValid || hasActiveValidationErrors}
                         className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isSaving ? (
@@ -1940,10 +1950,7 @@ export function Settings() {
                         
                         // Real-time validation
                         const errors = validateNotificationPrefs(newPrefs);
-                        setValidationErrors((prev) => ({
-                          ...prev,
-                          ...errors,
-                        }));
+                        updateValidationErrorsForFields(NOTIFICATION_FIELDS, errors);
                       }}
                       className={`block w-full pl-3 pr-10 py-2 text-base border rounded-md focus:outline-none sm:text-sm ${
                         validationErrors.frequency
@@ -1967,7 +1974,7 @@ export function Settings() {
                     <div className="flex justify-end">
                       <button
                         type="submit"
-                        disabled={isSaving}
+                        disabled={isSaving || hasActiveValidationErrors}
                         className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
                       >
                         {isSaving ? (
@@ -2220,7 +2227,7 @@ export function Settings() {
                     <div className="flex justify-end">
                       <button
                         type="submit"
-                        disabled={isSaving}
+                        disabled={isSaving || hasActiveValidationErrors}
                         className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
                       >
                         {isSaving ? (

@@ -86,55 +86,83 @@ export const useUserProfile = () => {
                return false;
           }
 
+          let previousSnapshot = null;
+
           try {
                setIsSaving(true);
 
-               // Store original preferences for rollback
-               setOriginalData({ preferences: user.preferences });
+               previousSnapshot = {
+                    preferences: user?.preferences,
+                    notificationPreferences: user?.notificationPreferences,
+               };
 
-               // Optimistic update
-               const optimisticUser = {
-                    ...user,
-                    preferences: {
-                         ...user.preferences,
+               // Keep snapshot in state for consistency with other actions
+               setOriginalData(previousSnapshot);
+
+               const optimisticPreferences = {
+                    ...(previousSnapshot.preferences || {}),
+                    userPreferences: {
+                         ...(previousSnapshot.preferences?.userPreferences || {}),
                          ...preferences,
                     },
                };
 
-               setUser(optimisticUser);
+               const optimisticNotificationPrefs =
+                    optimisticPreferences.notifications || previousSnapshot.notificationPreferences;
 
-               // Make API call
-               const updatedPreferences = await userService.updateUserPreferences(user.id, preferences);
+               // Apply optimistic update without overwriting unrelated user fields
+               const optimisticPatch = {
+                    preferences: optimisticPreferences,
+               };
 
-               // Update with server response
-               const serverUser = {
-                    ...user,
+               if (optimisticNotificationPrefs) {
+                    optimisticPatch.notificationPreferences = optimisticNotificationPrefs;
+               }
+
+               setUser(optimisticPatch);
+
+               // Persist change
+               const response = await userService.updateUserPreferences(user.id, preferences);
+               const updatedPreferences = response?.preferences ?? response ?? optimisticPreferences;
+
+               const resolvedNotificationPrefs =
+                    updatedPreferences.notifications || previousSnapshot.notificationPreferences;
+
+               const serverPatch = {
                     preferences: updatedPreferences,
                };
 
-               setUser(serverUser);
-               showSuccess('Preferences updated successfully');
+               if (resolvedNotificationPrefs) {
+                    serverPatch.notificationPreferences = resolvedNotificationPrefs;
+               }
+
+               setUser(serverPatch);
+               showSuccess(response?.message ?? 'Preferences updated successfully');
 
                setOriginalData(null);
                return true;
           } catch (error) {
                console.error('Error updating preferences:', error);
 
-               // Rollback on error
-               if (originalData?.preferences) {
-                    setUser({
-                         ...user,
-                         preferences: originalData.preferences,
-                    });
-                    setOriginalData(null);
+               if (previousSnapshot?.preferences) {
+                    const rollbackPatch = {
+                         preferences: previousSnapshot.preferences,
+                    };
+
+                    if (previousSnapshot.notificationPreferences) {
+                         rollbackPatch.notificationPreferences = previousSnapshot.notificationPreferences;
+                    }
+
+                    setUser(rollbackPatch);
                }
 
+               setOriginalData(null);
                showError(error.message || 'Failed to update preferences');
                return false;
           } finally {
                setIsSaving(false);
           }
-     }, [user, setUser, showSuccess, showError]);
+     }, [user, setUser, showSuccess, showError, setOriginalData]);
 
      /**
       * Update notification preferences

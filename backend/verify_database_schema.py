@@ -16,53 +16,69 @@ from app.models.team import Team
 EXPECTED_SCHEMA = {
     "users": {
         "columns": [
-            "id", "email", "hashed_password", "full_name", "is_active", 
-            "is_superuser", "created_at", "updated_at", "team_id", 
-            "preferences", "profile_picture_url", "last_login", "email_verified"
+            "id", "email", "hashed_password", "full_name", "role",
+            "is_active", "is_verified", "team_id", "preferences",
+            "first_name", "last_name", "job_title", "bio",
+            "programming_languages", "gemini_api_key", "oauth_provider",
+            "oauth_id", "oauth_email_verified", "profile_picture_url",
+            "last_login", "created_at", "updated_at"
         ],
-        "nullable": ["full_name", "team_id", "preferences", "profile_picture_url", "last_login"],
+        "nullable": [
+            "hashed_password", "full_name", "is_active", "is_verified",
+            "team_id", "first_name", "last_name", "job_title", "bio",
+            "programming_languages", "gemini_api_key", "oauth_provider",
+            "oauth_id", "oauth_email_verified", "profile_picture_url",
+            "last_login", "created_at", "updated_at"
+        ],
         "indexes": ["email"]
     },
     "teams": {
         "columns": [
-            "id", "name", "description", "created_at", "updated_at", 
-            "owner_id", "settings"
+            "id", "name", "admin_id", "settings", "created_at", "updated_at"
         ],
-        "nullable": ["description", "settings"],
+        "nullable": ["created_at", "updated_at"],
         "indexes": ["name"]
     },
     "github_repositories": {
         "columns": [
-            "id", "user_id", "repo_name", "repo_url", "webhook_id",
+            "id", "user_id", "repo_url", "repo_name", "webhook_id",
             "webhook_secret", "is_active", "default_branch", "repository_settings",
             "access_token", "permissions", "created_at", "updated_at",
             "last_webhook_received"
         ],
-        "nullable": ["webhook_id", "webhook_secret", "access_token", "last_webhook_received"],
+        "nullable": [
+            "webhook_id", "webhook_secret", "access_token", "last_webhook_received",
+            "created_at", "updated_at"
+        ],
         "indexes": ["user_id", "repo_name", "repo_url", "is_active", "created_at"]
     },
     "pr_analyses": {
         "columns": [
             "id", "repository_id", "pr_number", "pr_title", "pr_author",
             "head_sha", "base_sha", "head_branch", "base_branch",
-            "status", "started_at", "completed_at", "issues_found",
-            "errors_count", "warnings_count", "analysis_results",
-            "error_message", "created_at", "updated_at"
+            "analysis_results", "issues_found", "errors_count", "warnings_count",
+            "issues_created", "comments_posted", "status", "started_at",
+            "completed_at", "error_message", "created_at", "updated_at"
         ],
         "nullable": [
-            "started_at", "completed_at", "issues_found", "errors_count",
-            "warnings_count", "analysis_results", "error_message"
+            "pr_title", "pr_author", "analysis_results", "started_at",
+            "completed_at", "error_message", "created_at", "updated_at"
         ],
         "indexes": ["repository_id", "pr_number", "status"]
     },
     "issues": {
         "columns": [
-            "id", "pr_analysis_id", "file_path", "line_number", "severity",
-            "message", "rule_id", "suggestion", "status", "feedback",
-            "created_at", "updated_at", "issue_hash"
+            "id", "analysis_id", "pattern_type", "severity", "category",
+            "location", "suggestion_text", "code_context", "original_code",
+            "suggested_fix", "ast_node_type", "ast_metadata", "status",
+            "confidence_score", "created_at", "updated_at", "resolved_at"
         ],
-        "nullable": ["rule_id", "suggestion", "feedback", "issue_hash"],
-        "indexes": ["pr_analysis_id", "status", "severity", "issue_hash"]
+        "nullable": [
+            "category", "original_code", "suggested_fix", "ast_node_type",
+            "ast_metadata", "status", "confidence_score", "resolved_at",
+            "created_at", "updated_at"
+        ],
+        "indexes": ["analysis_id", "pattern_type", "severity", "status"]
     }
 }
 
@@ -76,27 +92,22 @@ async def verify_database_schema():
     print()
     
     async with AsyncSessionLocal() as session:
-        # Get database inspector using run_sync
-        def get_inspector(sync_conn):
-            return inspect(sync_conn)
-        
         connection = await session.connection()
-        inspector = await connection.run_sync(get_inspector)
-        
-        # Get all table names
+
+        # Use synchronous inspector calls via run_sync to stay within async context
         def get_tables(sync_conn):
-            insp = inspect(sync_conn)
-            return insp.get_table_names()
-        
+            return inspect(sync_conn).get_table_names()
+
         tables = await connection.run_sync(get_tables)
         print(f"Found {len(tables)} tables in database:")
         for table in sorted(tables):
             print(f"  - {table}")
         print()
         
-        # Check each expected table
+        # Track schema details for follow-up checks
         issues_found = []
-        
+        table_columns = {}
+
         for table_name, expected in EXPECTED_SCHEMA.items():
             print(f"\n{'=' * 80}")
             print(f"Checking table: {table_name}")
@@ -112,9 +123,13 @@ async def verify_database_schema():
             print(f"✓ Table exists")
             
             # Get actual columns
-            columns = inspector.get_columns(table_name)
+            def get_columns(sync_conn, name):
+                return inspect(sync_conn).get_columns(name)
+
+            columns = await connection.run_sync(get_columns, table_name)
             column_names = [col['name'] for col in columns]
             column_details = {col['name']: col for col in columns}
+            table_columns[table_name] = set(column_names)
             
             print(f"\nColumns ({len(column_names)}):")
             
@@ -162,7 +177,10 @@ async def verify_database_schema():
                     print(f"  ✓ {col_name:30} {status}")
             
             # Check indexes
-            indexes = inspector.get_indexes(table_name)
+            def get_indexes(sync_conn, name):
+                return inspect(sync_conn).get_indexes(name)
+
+            indexes = await connection.run_sync(get_indexes, table_name)
             print(f"\nIndexes ({len(indexes)}):")
             for idx in indexes:
                 cols = ', '.join(idx['column_names'])
@@ -170,7 +188,10 @@ async def verify_database_schema():
                 print(f"  - {idx['name']:40} ({cols}) {unique}")
             
             # Check foreign keys
-            foreign_keys = inspector.get_foreign_keys(table_name)
+            def get_foreign_keys(sync_conn, name):
+                return inspect(sync_conn).get_foreign_keys(name)
+
+            foreign_keys = await connection.run_sync(get_foreign_keys, table_name)
             if foreign_keys:
                 print(f"\nForeign Keys ({len(foreign_keys)}):")
                 for fk in foreign_keys:
@@ -194,48 +215,53 @@ async def verify_database_schema():
         print("CHECKING FOR DATA ISSUES")
         print(f"{'=' * 80}")
         
-        # Check for issues without pr_analysis
-        result = await session.execute(text("""
-            SELECT COUNT(*) as count 
-            FROM issues 
-            WHERE pr_analysis_id NOT IN (SELECT id FROM pr_analyses)
-        """))
-        orphaned_issues = result.scalar()
-        if orphaned_issues > 0:
-            print(f"⚠️  Found {orphaned_issues} orphaned issues (pr_analysis_id doesn't exist)")
-            issues_found.append(f"{orphaned_issues} orphaned issues")
+        # Check for issues without corresponding direct analysis
+        issue_cols = table_columns.get("issues", set())
+        if "analysis_id" in issue_cols:
+            result = await session.execute(text("""
+                SELECT COUNT(*) as count 
+                FROM issues 
+                WHERE analysis_id NOT IN (SELECT id FROM direct_analyses)
+            """))
+            orphaned_issues = result.scalar()
+            if orphaned_issues > 0:
+                print(f"⚠️  Found {orphaned_issues} orphaned issues (analysis_id doesn't exist)")
+                issues_found.append(f"{orphaned_issues} orphaned issues")
+            else:
+                print("✓ No orphaned issues")
         else:
-            print(f"✓ No orphaned issues")
+            print("⚠️  Skipping orphaned issues check (column 'analysis_id' not found)")
         
         # Check for pr_analyses without repository
-        result = await session.execute(text("""
-            SELECT COUNT(*) as count 
-            FROM pr_analyses 
-            WHERE repository_id NOT IN (SELECT id FROM github_repositories)
-        """))
-        orphaned_analyses = result.scalar()
-        if orphaned_analyses > 0:
-            print(f"⚠️  Found {orphaned_analyses} orphaned pr_analyses (repository_id doesn't exist)")
-            issues_found.append(f"{orphaned_analyses} orphaned pr_analyses")
+        pr_analysis_cols = table_columns.get("pr_analyses", set())
+        if "repository_id" in pr_analysis_cols:
+            result = await session.execute(text("""
+                SELECT COUNT(*) as count 
+                FROM pr_analyses 
+                WHERE repository_id NOT IN (SELECT id FROM github_repositories)
+            """))
+            orphaned_analyses = result.scalar()
+            if orphaned_analyses > 0:
+                print(f"⚠️  Found {orphaned_analyses} orphaned pr_analyses (repository_id doesn't exist)")
+                issues_found.append(f"{orphaned_analyses} orphaned pr_analyses")
+            else:
+                print("✓ No orphaned pr_analyses")
         else:
-            print(f"✓ No orphaned pr_analyses")
+            print("⚠️  Skipping orphaned pr_analysis check (column 'repository_id' not found)")
         
-        # Check for duplicate issue_hash
+        # Check for duplicate issue IDs (should never happen with PK constraint)
         result = await session.execute(text("""
-            SELECT issue_hash, COUNT(*) as count 
-            FROM issues 
-            WHERE issue_hash IS NOT NULL
-            GROUP BY issue_hash 
+            SELECT id, COUNT(*) as count
+            FROM issues
+            GROUP BY id
             HAVING COUNT(*) > 1
         """))
-        duplicate_hashes = result.fetchall()
-        if duplicate_hashes:
-            print(f"⚠️  Found {len(duplicate_hashes)} duplicate issue_hash values")
-            for hash_val, count in duplicate_hashes[:5]:
-                print(f"    - {hash_val}: {count} duplicates")
-            issues_found.append(f"{len(duplicate_hashes)} duplicate issue_hash values")
+        duplicate_issues = result.fetchall()
+        if duplicate_issues:
+            print(f"⚠️  Found {len(duplicate_issues)} duplicate issue IDs")
+            issues_found.append(f"{len(duplicate_issues)} duplicate issue IDs")
         else:
-            print(f"✓ No duplicate issue_hash values")
+            print("✓ No duplicate issue IDs")
         
         # Count records in each table
         print(f"\n\n{'=' * 80}")

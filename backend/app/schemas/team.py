@@ -170,8 +170,11 @@ class PlatformAnalytics(BaseModel):
     recent_activity: Dict[str, int]
     avg_issues_per_review: float
     feedback_acceptance_rate: float
+    reviews_today: int
+    active_users_30d: int
     top_languages: List[Dict[str, Any]] = []
     growth_metrics: Dict[str, Any] = {}
+    issue_breakdown: List[Dict[str, Any]] = []
 
 
 class PlatformStatistics(BaseModel):

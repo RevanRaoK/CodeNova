@@ -18,7 +18,7 @@ from collections import defaultdict, Counter
 import json
 import redis
 from ..models import User, Feedback, EnhancedFeedback, FeedbackAction
-from ..models.feedback import ModelVersion, FeedbackRecord
+from ..models.feedback import ModelVersion, FeedbackRecord, Issue
 from ..schemas.feedback import FeedbackCreate, DateRange
 from ..core.config import settings
 from ..core.analytics_config import analytics_config
@@ -728,7 +728,14 @@ class AnalyticsService:
         patterns = [
             f"user_stats:user_id:{user_id}",
             f"usage_trends:user_id:{user_id}:*",
+            f"usage_trends:timeframe:*:user_id:{user_id}",
+            f"usage_trends_v2:user_id:{user_id}:*",
+            f"usage_trends_v2:timeframe:*:user_id:{user_id}",
             f"feedback_distribution:user_id:{user_id}:*",
+            f"issue_trends:user_id:{user_id}:*",
+            f"issue_trends:timeframe:*:user_id:{user_id}",
+            f"criticality_distribution:user_id:{user_id}:*",
+            f"criticality_distribution:timeframe:*:user_id:{user_id}",
             f"dashboard_data:user_id:{user_id}:*"
         ]
         
@@ -757,8 +764,15 @@ class AnalyticsService:
         # Try to get from cache first
         cached_data = self._get_cached_data(cache_key)
         if cached_data:
-            logger.info(f"Cache hit for user stats: {user_id}")
-            return cached_data
+            has_performance = bool(cached_data.get("performanceMetrics"))
+            meets_expectations = has_performance or cached_data.get("totalReviews", 0) == 0
+            if meets_expectations:
+                logger.info(f"Cache hit for user stats: {user_id}")
+                return cached_data
+            logger.warning(
+                "Stale cache detected for user %s; recomputing analytics to refresh performance metrics",
+                user_id
+            )
         
         try:
             # Get total analyses count
@@ -794,9 +808,22 @@ class AnalyticsService:
             acceptance_rate = (accepted_feedback / total_feedback * 100) if total_feedback > 0 else 0
             
             # Get total issues found across all analyses
-            total_issues = self.db.query(Issue).join(DirectAnalysis).filter(
-                DirectAnalysis.user_id == user_id
-            ).count()
+            total_issues = (
+                self.db.query(func.count(Issue.id))
+                .join(DirectAnalysis, DirectAnalysis.id == Issue.analysis_id)
+                .filter(DirectAnalysis.user_id == user_id)
+                .scalar()
+                or 0
+            )
+
+            if total_issues == 0:
+                denormalized_issue_count = (
+                    self.db.query(func.coalesce(func.sum(DirectAnalysis.issues_count), 0))
+                    .filter(DirectAnalysis.user_id == user_id)
+                    .scalar()
+                    or 0
+                )
+                total_issues = int(denormalized_issue_count)
             
             # Get recent activity (last 10 analyses)
             recent_analyses = self.db.query(DirectAnalysis).filter(
@@ -828,15 +855,184 @@ class AnalyticsService:
                     "status": status_map.get(analysis.status, "info"),
                     "issuesFound": issue_count
                 })
+
+            # Build performance metrics for recent period (default 30 days)
+            metrics_window_days = 30
+            metrics_start = datetime.utcnow() - timedelta(days=metrics_window_days)
+            use_all_time_window = False
+
+            meaningful_status_filter = or_(
+                DirectAnalysis.status == "completed",
+                DirectAnalysis.completed_at.isnot(None),
+                DirectAnalysis.results.isnot(None)
+            )
+
+            recent_completed_analyses = (
+                self.db.query(DirectAnalysis)
+                .filter(
+                    DirectAnalysis.user_id == user_id,
+                    DirectAnalysis.created_at >= metrics_start,
+                    meaningful_status_filter
+                )
+                .order_by(desc(DirectAnalysis.created_at))
+                .all()
+            )
+
+            if not recent_completed_analyses:
+                recent_completed_analyses = (
+                    self.db.query(DirectAnalysis)
+                    .filter(
+                        DirectAnalysis.user_id == user_id,
+                        meaningful_status_filter
+                    )
+                    .order_by(desc(DirectAnalysis.created_at))
+                    .limit(200)
+                    .all()
+                )
+
+                if recent_completed_analyses:
+                    use_all_time_window = True
+                    metrics_start = None  # Indicates all-time window
+
+            performance_metrics: List[Dict[str, Any]] = []
+            performance_summary: Dict[str, Any]
+
+            if recent_completed_analyses:
+                def _resolve_response_duration_seconds(analysis: DirectAnalysis) -> Optional[float]:
+                    """Prefer completed_at delta, fall back to stored processing time metrics."""
+                    if analysis.completed_at and analysis.created_at:
+                        delta = (analysis.completed_at - analysis.created_at).total_seconds()
+                        if delta >= 0:
+                            return delta
+                    if analysis.ast_processing_time and analysis.ast_processing_time > 0:
+                        return float(analysis.ast_processing_time)
+                    if isinstance(analysis.results, dict):
+                        # Look for common timing fields recorded in analysis results payloads
+                        candidate_dicts = [analysis.results]
+                        candidate_dicts.extend(
+                            value for value in analysis.results.values() if isinstance(value, dict)
+                        )
+                        timing_keys = ("processing_time_seconds", "processingTimeSeconds", "processing_time")
+                        for payload in candidate_dicts:
+                            for key in timing_keys:
+                                value = payload.get(key) if isinstance(payload, dict) else None
+                                if isinstance(value, (int, float)) and value >= 0:
+                                    return float(value)
+                    return None
+
+                response_durations = [
+                    duration for analysis in recent_completed_analyses
+                    if (duration := _resolve_response_duration_seconds(analysis)) is not None
+                ]
+                avg_response_time = sum(response_durations) / len(response_durations) if response_durations else 0.0
+
+                total_issues_period = sum((analysis.issues_count or 0) for analysis in recent_completed_analyses)
+                avg_issues_per_review = total_issues_period / len(recent_completed_analyses) if recent_completed_analyses else 0.0
+
+                feedback_filters = [FeedbackRecord.user_id == user_id]
+                if not use_all_time_window and metrics_start is not None:
+                    feedback_filters.append(FeedbackRecord.created_at >= metrics_start)
+
+                recent_feedback_total = self.db.query(func.count(FeedbackRecord.id)).filter(
+                    *feedback_filters
+                ).scalar() or 0
+                recent_feedback_accept = self.db.query(func.count(FeedbackRecord.id)).filter(
+                    *feedback_filters,
+                    FeedbackRecord.feedback_type == "accept"
+                ).scalar() or 0
+                accuracy_recent = (
+                    (recent_feedback_accept / recent_feedback_total) * 100
+                    if recent_feedback_total > 0 else acceptance_rate
+                )
+
+                # Track common patterns surfaced during the window
+                issue_filters = [DirectAnalysis.user_id == user_id, meaningful_status_filter]
+                if not use_all_time_window and metrics_start is not None:
+                    issue_filters.append(DirectAnalysis.created_at >= metrics_start)
+
+                recent_issues = (
+                    self.db.query(Issue)
+                    .join(DirectAnalysis, DirectAnalysis.id == Issue.analysis_id)
+                    .filter(*issue_filters)
+                    .all()
+                )
+                pattern_counts = Counter(issue.pattern_type for issue in recent_issues if issue.pattern_type)
+                top_patterns = [
+                    {"pattern": pattern, "count": count}
+                    for pattern, count in pattern_counts.most_common(5)
+                ]
+
+                # Compare with previous window to show directional trend
+                response_trend = "stable"
+                if not use_all_time_window and metrics_start is not None:
+                    previous_window_start = metrics_start - timedelta(days=metrics_window_days)
+                    previous_completed = (
+                        self.db.query(DirectAnalysis)
+                        .filter(
+                            DirectAnalysis.user_id == user_id,
+                            DirectAnalysis.created_at >= previous_window_start,
+                            DirectAnalysis.created_at < metrics_start,
+                            meaningful_status_filter
+                        )
+                        .all()
+                    )
+                    previous_durations = [
+                        duration for analysis in previous_completed
+                        if (duration := _resolve_response_duration_seconds(analysis)) is not None
+                    ]
+                    prev_avg_response = sum(previous_durations) / len(previous_durations) if previous_durations else None
+                    if prev_avg_response is not None:
+                        if avg_response_time < prev_avg_response:
+                            response_trend = "improving"
+                        elif avg_response_time > prev_avg_response:
+                            response_trend = "regressing"
+
+                period_label = (
+                    "All time" if use_all_time_window
+                    else f"Last {metrics_window_days} days"
+                )
+
+                performance_metrics.append({
+                    "period": period_label,
+                    "avgResponseTime": round(avg_response_time, 2),
+                    "avgIssuesPerReview": round(avg_issues_per_review, 2),
+                    "accuracy": round(accuracy_recent or 0.0, 2),
+                    "totalReviews": len(recent_completed_analyses),
+                    "topPatterns": top_patterns,
+                    "responseTrend": response_trend
+                })
+
+                performance_summary = {
+                    "window": metrics_window_days if not use_all_time_window else None,
+                    "reviews": len(recent_completed_analyses),
+                    "avgResponseTime": round(avg_response_time, 2),
+                    "avgIssuesPerReview": round(avg_issues_per_review, 2),
+                    "accuracy": round(accuracy_recent or 0.0, 2)
+                }
+            else:
+                performance_metrics = []
+                performance_summary = {
+                    "window": metrics_window_days,
+                    "reviews": 0,
+                    "avgResponseTime": 0.0,
+                    "avgIssuesPerReview": 0.0,
+                    "accuracy": 0.0
+                }
             
             result = {
+                # Legacy keys kept for compatibility
                 "totalReviews": total_analyses,
                 "totalAnalyses": completed_analyses,
+                # Explicit, clearer keys for frontend mapping
+                "filesAnalyzed": total_analyses,
+                "completedAnalyses": completed_analyses,
                 "successRate": round(success_rate, 2),
                 "totalFeedback": total_feedback,
                 "acceptanceRate": round(acceptance_rate, 2),
                 "totalIssuesFound": total_issues,
-                "recentActivity": recent_activity
+                "recentActivity": recent_activity,
+                "performanceMetrics": performance_metrics,
+                "performanceSummary": performance_summary
             }
             
             # Cache the result with shorter TTL for real-time feel
@@ -855,7 +1051,15 @@ class AnalyticsService:
                 "totalFeedback": 0,
                 "acceptanceRate": 0.0,
                 "totalIssuesFound": 0,
-                "recentActivity": []
+                "recentActivity": [],
+                "performanceMetrics": [],
+                "performanceSummary": {
+                    "window": 30,
+                    "reviews": 0,
+                    "avgResponseTime": 0.0,
+                    "avgIssuesPerReview": 0.0,
+                    "accuracy": 0.0
+                }
             }
     
     async def get_usage_trends(self, user_id: int, timeframe: str = "30d") -> Dict[str, Any]:
@@ -872,8 +1076,8 @@ class AnalyticsService:
         Requirements: 1.3, 1.4, 1.5
         """
         from ..models.analysis import DirectAnalysis
-        
-        cache_key = self._get_cache_key("usage_trends", user_id=user_id, timeframe=timeframe)
+
+        cache_key = self._get_cache_key("usage_trends_v2", user_id=user_id, timeframe=timeframe)
         
         # Try to get from cache first
         cached_data = self._get_cached_data(cache_key)
@@ -905,20 +1109,45 @@ class AnalyticsService:
             
             # Group by date with enhanced metrics
             daily_data = defaultdict(lambda: {
-                "reviews": 0, 
-                "accepted": 0, 
-                "rejected": 0, 
+                "reviews": 0,
+                "accepted": 0,
+                "rejected": 0,
                 "modified": 0,
                 "issues_found": 0,
                 "completed_reviews": 0
             })
+
+            issues_by_date = {}
+            if analyses:
+                issue_counts = (
+                    self.db.query(
+                        func.date(DirectAnalysis.created_at).label("issue_date"),
+                        func.count(Issue.id).label("issue_count")
+                    )
+                    .join(DirectAnalysis, Issue.analysis_id == DirectAnalysis.id)
+                    .filter(
+                        DirectAnalysis.user_id == user_id,
+                        DirectAnalysis.created_at >= start_date
+                    )
+                    .group_by(func.date(DirectAnalysis.created_at))
+                    .all()
+                )
+
+                for row in issue_counts:
+                    date_value = row.issue_date
+                    date_str = date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value)
+                    issues_by_date[date_str] = int(row.issue_count or 0)
             
             for analysis in analyses:
                 date_str = analysis.created_at.strftime('%Y-%m-%d')
                 daily_data[date_str]["reviews"] += 1
                 if analysis.status == "completed":
                     daily_data[date_str]["completed_reviews"] += 1
-                    daily_data[date_str]["issues_found"] += analysis.issues_count or 0
+                if analysis.issues_count:
+                    daily_data[date_str]["issues_found"] += analysis.issues_count
+
+            for date_str, issue_count in issues_by_date.items():
+                daily_data[date_str]["issues_found"] = issue_count
             
             for feedback in feedback_records:
                 date_str = feedback.created_at.strftime('%Y-%m-%d')
@@ -1346,155 +1575,3 @@ class AnalyticsService:
             "low": ["low", "minor", "info"]
         }
         return aliases.get(severity, [severity])
-
-
-    async def get_issue_trends(
-        self,
-        user_id: int,
-        timeframe: str = "30d"
-    ) -> Dict[str, Any]:
-        """
-        Get issue trends over time for a user.
-        
-        Requirements: 4.1, 4.2 - Issue trends visualization
-        """
-        from app.models.analysis import DirectAnalysis
-        
-        # Calculate date range
-        days = int(timeframe.replace('d', ''))
-        start_date = datetime.utcnow() - timedelta(days=days)
-        
-        # Query analyses in timeframe
-        analyses = self.db.query(DirectAnalysis).filter(
-            DirectAnalysis.user_id == user_id,
-            DirectAnalysis.created_at >= start_date,
-            DirectAnalysis.status == "completed"
-        ).order_by(DirectAnalysis.created_at).all()
-        
-        # Group by date
-        data_by_date = defaultdict(lambda: {
-            "errors": 0,
-            "security_issues": 0,
-            "warnings": 0,
-            "total": 0
-        })
-        
-        for analysis in analyses:
-            date_key = analysis.created_at.strftime("%Y-%m-%d")
-            
-            # Count issues by severity
-            if analysis.results and "issues" in analysis.results:
-                for issue in analysis.results["issues"]:
-                    severity = issue.get("severity", "info")
-                    if severity == "error":
-                        data_by_date[date_key]["errors"] += 1
-                    elif "security" in issue.get("category", "").lower():
-                        data_by_date[date_key]["security_issues"] += 1
-                    elif severity == "warning":
-                        data_by_date[date_key]["warnings"] += 1
-                    data_by_date[date_key]["total"] += 1
-        
-        # Convert to list of data points
-        data_points = []
-        for date_str in sorted(data_by_date.keys()):
-            data_points.append({
-                "date": date_str,
-                **data_by_date[date_str]
-            })
-        
-        # Calculate summary
-        total_errors = sum(p["errors"] for p in data_points)
-        total_warnings = sum(p["warnings"] for p in data_points)
-        total_security = sum(p["security_issues"] for p in data_points)
-        
-        # Determine trend
-        if len(data_points) >= 2:
-            first_half = data_points[:len(data_points)//2]
-            second_half = data_points[len(data_points)//2:]
-            
-            first_avg = sum(p["total"] for p in first_half) / len(first_half) if first_half else 0
-            second_avg = sum(p["total"] for p in second_half) / len(second_half) if second_half else 0
-            
-            if second_avg < first_avg * 0.9:
-                trend = "improving"
-            elif second_avg > first_avg * 1.1:
-                trend = "declining"
-            else:
-                trend = "stable"
-        else:
-            trend = "insufficient_data"
-        
-        return {
-            "data_points": data_points,
-            "summary": {
-                "total_errors": total_errors,
-                "total_security": total_security,
-                "total_warnings": total_warnings,
-                "trend": trend
-            }
-        }
-    
-    async def get_criticality_distribution(
-        self,
-        user_id: int,
-        timeframe: str = "30d"
-    ) -> Dict[str, Any]:
-        """
-        Get criticality distribution for a user.
-        
-        Requirements: 5.1, 5.2 - Criticality distribution visualization
-        """
-        from app.models.analysis import DirectAnalysis
-        
-        # Calculate date range
-        days = int(timeframe.replace('d', ''))
-        start_date = datetime.utcnow() - timedelta(days=days)
-        
-        # Query analyses in timeframe
-        analyses = self.db.query(DirectAnalysis).filter(
-            DirectAnalysis.user_id == user_id,
-            DirectAnalysis.created_at >= start_date,
-            DirectAnalysis.status == "completed"
-        ).all()
-        
-        # Count issues by severity
-        severity_counts = {
-            "severe": 0,
-            "high": 0,
-            "medium": 0,
-            "low": 0
-        }
-        
-        total_issues = 0
-        
-        for analysis in analyses:
-            if analysis.results and "issues" in analysis.results:
-                for issue in analysis.results["issues"]:
-                    severity = issue.get("severity", "info").lower()
-                    
-                    # Map severities to categories
-                    if severity in ["critical", "error"]:
-                        if "security" in issue.get("category", "").lower():
-                            severity_counts["severe"] += 1
-                        else:
-                            severity_counts["high"] += 1
-                    elif severity == "warning":
-                        severity_counts["medium"] += 1
-                    else:
-                        severity_counts["low"] += 1
-                    
-                    total_issues += 1
-        
-        # Calculate percentages
-        distribution = {}
-        for severity, count in severity_counts.items():
-            percentage = (count / total_issues * 100) if total_issues > 0 else 0
-            distribution[severity] = {
-                "count": count,
-                "percentage": round(percentage, 2)
-            }
-        
-        return {
-            "distribution": distribution,
-            "total_issues": total_issues
-        }

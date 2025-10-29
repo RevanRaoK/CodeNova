@@ -11,7 +11,6 @@ import os
 import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
-import psutil
 import asyncio
 from dataclasses import dataclass
 
@@ -19,6 +18,19 @@ from app.core.config import settings
 from app.core.monitoring import system_monitor, health_checker
 from app.core.cache import cache
 from app.db.performance_indexes import create_performance_indexes, create_database_views
+
+
+logger = logging.getLogger(__name__)
+
+try:  # Optional dependency for hardware metrics
+    import psutil  # type: ignore
+    _PSUTIL_AVAILABLE = True
+except ModuleNotFoundError:
+    psutil = None  # type: ignore
+    _PSUTIL_AVAILABLE = False
+    logger.warning(
+        "psutil not installed; system resource checks will use fallback values. Install psutil for full readiness checks."
+    )
 
 
 @dataclass
@@ -334,6 +346,19 @@ class ProductionReadinessChecker:
     async def _check_system_resources(self) -> Dict[str, Any]:
         """Check system resource availability."""
         try:
+            if not _PSUTIL_AVAILABLE:
+                passed = settings.ENVIRONMENT != "production"
+                recommendations = ["Install psutil to enable system resource monitoring"]
+                if not passed:
+                    recommendations.append("psutil is required for production resource checks")
+                return {
+                    "passed": passed,
+                    "details": {
+                        "psutil_available": False
+                    },
+                    "recommendations": recommendations
+                }
+            
             # Get current system metrics
             cpu_percent = psutil.cpu_percent(interval=1)
             memory = psutil.virtual_memory()
