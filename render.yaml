@@ -8,6 +8,7 @@ services:
   - name: codenova-redis
     type: redis
     plan: free
+    ipAllowList: []
 
   - name: codenova-backend
     type: web
@@ -48,10 +49,7 @@ services:
       - key: VITE_GOOGLE_CLIENT_ID
         sync: false
       - key: VITE_API_BASE_URL
-        fromService:
-          type: web
-          name: codenova-backend
-          property: url
+        value: "https://your-backend-url/api/v1" # Replace after first deploy
 
   - name: codenova-redis-worker
     type: worker
