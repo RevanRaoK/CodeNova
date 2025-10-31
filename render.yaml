@@ -1,15 +1,10 @@
-services:
-  # PostgreSQL Database
+databases:
   - name: codenova-postgres
-    type: psql
-    plan: free # or a paid plan
-    postgres:
-      version: 15
-    disk:
-      name: postgres_data
-      sizeGB: 1
-      mountPath: /var/lib/postgresql/data
+    plan: free
+    databaseName: codenova_db
+    user: postgres
 
+services:
   # Redis Cache
   - name: codenova-redis
     type: redis
