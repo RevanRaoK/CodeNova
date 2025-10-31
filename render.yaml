@@ -39,7 +39,6 @@ services:
 
   - name: codenova-frontend
     type: web
-    plan: free
     runtime: static
     rootDir: ./frontend
     buildCommand: "npm install && npm run build"
