@@ -9,8 +9,9 @@
       "src": "frontend/package.json",
       "use": "@vercel/static-build",
       "config": {
-        "workDirectory": "frontend",
-        "distDir": "dist"
+        "installCommand": "npm --prefix frontend install",
+        "buildCommand": "npm --prefix frontend run build",
+        "outputDirectory": "frontend/dist"
       }
     }
   ],
@@ -20,8 +21,11 @@
       "dest": "backend/main.py"
     },
     {
+      "handle": "filesystem"
+    },
+    {
       "src": "/(.*)",
-      "dest": "frontend/$1"
+      "dest": "/index.html"
     }
   ]
 }
