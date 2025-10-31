@@ -1,7 +1,7 @@
 services:
   # PostgreSQL Database
   - name: codenova-postgres
-    type: pserv
+    type: psql
     plan: free # or a paid plan
     postgres:
       version: 15
@@ -12,7 +12,7 @@ services:
 
   # Redis Cache
   - name: codenova-redis
-    type: pserv
+    type: redis
     plan: free # or a paid plan
     redis:
       version: 7
