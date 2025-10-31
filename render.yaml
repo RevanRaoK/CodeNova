@@ -2,7 +2,6 @@ databases:
   - name: codenova-postgres
     plan: free
     databaseName: codenova_db
-    user: postgres
 
 services:
   - name: codenova-redis
