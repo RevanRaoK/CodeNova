@@ -1,0 +1,242 @@
+================================================================================
+DETAILED GROUP EXPLANATIONS WITH VERSIONS - CODE NOVA PROJECT
+================================================================================
+
+This document provides detailed explanations of each group's responsibilities,
+technologies used (with specific versions), and integration details for the
+CodeNova project.
+
+================================================================================
+GROUP 1: BACKEND CORE (API, DATABASE, AUTHENTICATION)
+================================================================================
+
+Detailed Explanation:
+This group handles the foundational backend infrastructure that powers the entire
+application. They are responsible for creating the REST API layer, managing data
+persistence, and implementing secure authentication mechanisms. The backend core
+acts as the central nervous system, providing data access and business logic
+services to all other components.
+
+Key Technologies & Versions:
+- Python: 3.11 (runtime environment)
+- FastAPI: 0.115.6 (web framework for building APIs)
+- Uvicorn: 0.32.1 (ASGI server for running FastAPI)
+- SQLAlchemy: 2.0.36 (ORM for database operations)
+- PostgreSQL: TimescaleDB latest-pg15 (database with time-series extensions)
+- Alembic: 1.14.0 (database migration tool)
+- AsyncPG: 0.30.0 (async PostgreSQL driver)
+- PassLib[Bcrypt]: 1.7.4 (password hashing)
+- Python-JOSE[Cryptography]: 3.3.0 (JWT token handling)
+- PyJWT: 2.10.1 (JSON Web Token implementation)
+- AuthLib: 1.4.0 (OAuth client library)
+- HTTPX-OAuth: 0.15.1 (OAuth integration)
+- Pydantic: 2.10.3 (data validation and serialization)
+- Pydantic-Settings: 2.6.1 (configuration management)
+
+Core Responsibilities:
+1. API Development: Design and implement RESTful endpoints using FastAPI
+2. Database Design: Create and maintain database schemas with SQLAlchemy
+3. Authentication: Implement JWT-based auth and OAuth integration
+4. Data Models: Define Pydantic models for request/response validation
+5. Middleware: CORS, authentication, and request logging
+6. Business Logic: User management, profile operations, settings persistence
+
+Integration Points:
+- Provides authenticated APIs to Groups 2, 3, and 4
+- Database schema used by Group 2 for storing analysis results
+- Authentication tokens consumed by frontend (Group 3)
+- User data accessed by AI services (Group 2)
+
+================================================================================
+GROUP 2: AI & CODE ANALYSIS ENGINE
+================================================================================
+
+Detailed Explanation:
+This group focuses on the intelligent core of CodeNova - the AI-powered code analysis
+and feedback generation system. They integrate Google's Gemini AI to provide automated
+code reviews, security analysis, and performance insights. The group handles complex
+algorithms for code quality assessment and generates actionable feedback for developers.
+
+Key Technologies & Versions:
+- Python: 3.11 (analysis processing environment)
+- Google-GenerativeAI: 0.8.3 (Gemini AI API client)
+- Google-Auth: 2.35.0 (authentication for Google services)
+- Google-Auth-OAuthLib: 1.2.1 (OAuth for Google APIs)
+- PyGitHub: 2.1.1 (GitHub API integration)
+- Redis: 5.2.1 (caching layer for AI responses)
+- Celery: 5.4.0 (task queue for background processing)
+- Kombu: 5.4.2 (messaging library for Celery)
+- Flower: 2.0.1 (Celery monitoring web UI)
+- Cryptography: 41.0.7 (secure data handling)
+- HTTPX: 0.28.1 (async HTTP client for API calls)
+
+Core Responsibilities:
+1. AI Integration: Connect to Google Gemini for code analysis
+2. Code Analysis: Implement algorithms for quality, security, performance checks
+3. Feedback Generation: Create intelligent, contextual feedback
+4. Repository Scanning: Analyze GitHub repositories for issues
+5. Analytics Processing: Generate usage statistics and trends
+6. Caching Strategy: Implement Redis caching for AI responses
+
+Integration Points:
+- Consumes repository data from Group 4's GitHub integration
+- Stores analysis results in Group 1's database
+- Provides data to Group 3's dashboard visualizations
+- Uses authentication from Group 1 for API access
+
+================================================================================
+GROUP 3: FRONTEND USER INTERFACE
+================================================================================
+
+Detailed Explanation:
+This group creates the user-facing application that developers interact with daily.
+They build a modern, responsive web interface using React that provides an intuitive
+experience for code review, dashboard analytics, and team collaboration. The frontend
+must handle real-time updates, complex state management, and seamless integration
+with backend services.
+
+Key Technologies & Versions:
+- Node.js: (via Vite, typically 18+ for compatibility)
+- React: 19.1.0 (UI framework)
+- React-DOM: 19.1.0 (React rendering for web)
+- React-Router-DOM: 7.1.1 (client-side routing)
+- Vite: 7.0.5 (build tool and dev server)
+- Monaco-Editor: 0.52.0 (code editor component)
+- @Monaco-Editor/React: 4.6.0 (React wrapper for Monaco)
+- Lucide-React: 0.468.0 (icon library)
+- Recharts: 3.1.0 (charting library for analytics)
+- @React-OAuth/Google: 0.12.2 (Google OAuth for React)
+- Axios: 1.7.9 (HTTP client for API calls)
+- TailwindCSS: 4.1.11 (utility-first CSS framework)
+- PostCSS: 8.5.6 (CSS processing)
+- Autoprefixer: 10.4.21 (CSS vendor prefixing)
+- TypeScript: 5.8.3 (type checking)
+- Web-Vitals: 5.0.3 (performance monitoring)
+
+Core Responsibilities:
+1. UI Components: Build reusable React components
+2. State Management: Implement Context API for global state
+3. Dashboard: Create analytics visualizations with Recharts
+4. Code Editor: Integrate Monaco for code review interface
+5. Authentication UI: Login, registration, OAuth flows
+6. Responsive Design: Mobile-first design with TailwindCSS
+7. Real-time Updates: Handle live data from backend APIs
+
+Integration Points:
+- Consumes REST APIs from Group 1
+- Displays AI analysis from Group 2
+- Uses OAuth integration from Group 4
+- Tested by Group 5's frontend test suites
+
+================================================================================
+GROUP 4: INTEGRATION & EXTERNAL SERVICES
+================================================================================
+
+Detailed Explanation:
+This group manages all external service integrations and asynchronous processing.
+They handle connections to third-party APIs, message queuing for background tasks,
+and file storage systems. This group ensures reliable communication between CodeNova
+and external services like GitHub, Google, and cloud storage providers.
+
+Key Technologies & Versions:
+- Python: 3.11 (for backend integrations)
+- PyGitHub: 2.1.1 (GitHub API client)
+- Google-Auth: 2.35.0 (Google authentication)
+- Google-Auth-OAuthLib: 1.2.1 (OAuth flows)
+- Boto3: 1.35.0 (AWS SDK for S3-compatible storage)
+- Botocore: 1.35.0 (low-level AWS services)
+- RabbitMQ: 3.12-management-alpine (message broker)
+- Pika: 1.3.2 (RabbitMQ Python client)
+- AIO-Pika: 9.4.3 (async RabbitMQ client)
+- Requests: 2.32.3 (HTTP library for API calls)
+- Python-Magic-Bin: 0.4.14 (file type detection)
+- Cryptography: 41.0.7 (secure token handling)
+
+Core Responsibilities:
+1. GitHub Integration: Repository access, webhook handling, PR analysis
+2. OAuth Management: Google and GitHub OAuth token lifecycle
+3. Message Queuing: RabbitMQ setup for async task processing
+4. File Storage: DigitalOcean Spaces integration for uploads
+5. API Rate Limiting: Handle external service limits and retries
+6. Webhook Processing: Real-time updates from GitHub events
+
+Integration Points:
+- Provides repository data to Group 2's analysis engine
+- Handles authentication flows for Group 1
+- Supports file uploads for Group 3's UI
+- Processes background tasks for all groups
+
+================================================================================
+GROUP 5: TESTING, DEPLOYMENT & DEVOPS
+================================================================================
+
+Detailed Explanation:
+This group ensures code quality, automates deployment, and maintains infrastructure.
+They implement comprehensive testing strategies, CI/CD pipelines, and monitoring
+systems. The DevOps group is responsible for production readiness, scalability,
+and maintaining system reliability across all environments.
+
+Key Technologies & Versions:
+- Python Testing: pytest 8.3.4, pytest-asyncio 0.24.0, pytest-cov 6.0.0
+- JavaScript Testing: Vitest 2.1.8, @testing-library/react 16.1.0
+- Code Quality: Black 24.10.0, isort 5.13.2, mypy 1.13.0
+- Build Tools: Vite 7.0.5 (frontend), Docker (containerization)
+- CI/CD: GitHub Actions (workflow automation)
+- Monitoring: Flower 2.0.1 (Celery monitoring), Redis 7-alpine
+- Database: TimescaleDB latest-pg15 (time-series database)
+- Message Queue: RabbitMQ 3.12-management-alpine
+- TypeScript: 5.8.3 (type checking for frontend)
+- @ViteJS/Plugin-React: 4.7.0 (React plugin for Vite)
+- @VitEST/Coverage-V8: 2.1.9 (test coverage reporting)
+
+Core Responsibilities:
+1. Test Automation: Unit, integration, and E2E test suites
+2. CI/CD Pipelines: Automated build, test, and deployment
+3. Docker Orchestration: Multi-container application management
+4. Performance Monitoring: Application metrics and alerting
+5. Security Testing: Vulnerability scanning and audits
+6. Documentation: API docs, user guides, deployment guides
+
+Integration Points:
+- Tests code from all other groups (Groups 1-4)
+- Deploys applications built by Groups 1-4
+- Provides infrastructure monitoring for all services
+- Ensures quality gates for production releases
+
+================================================================================
+VERSION COMPATIBILITY MATRIX
+================================================================================
+
+Python Ecosystem:
+- Python 3.11 (minimum required)
+- FastAPI 0.115.6 requires Python >= 3.8
+- SQLAlchemy 2.0.36 requires Python >= 3.7
+- Google-GenerativeAI 0.8.3 requires Python >= 3.8
+
+Node.js Ecosystem:
+- Node.js 18+ recommended (Vite 7.0.5 compatibility)
+- React 19.1.0 requires Node.js 16.8+
+- TypeScript 5.8.3 compatible with Node.js 12.20+
+
+Database & Infrastructure:
+- PostgreSQL 15+ (TimescaleDB latest-pg15)
+- Redis 7+ (7-alpine container)
+- RabbitMQ 3.12+ (3.12-management-alpine)
+
+External Services:
+- Google Gemini API (via google-generativeai 0.8.3)
+- GitHub API (via PyGitHub 2.1.1)
+- DigitalOcean Spaces (S3-compatible via boto3 1.35.0)
+
+================================================================================
+TECHNOLOGY STACK SUMMARY
+================================================================================
+
+Backend Stack: Python 3.11, FastAPI 0.115.6, PostgreSQL, Redis, RabbitMQ
+Frontend Stack: React 19.1.0, Vite 7.0.5, TypeScript 5.8.3, TailwindCSS 4.1.11
+AI/ML Stack: Google Gemini 0.8.3, Redis caching, Celery 5.4.0
+Integration Stack: GitHub API, Google OAuth, DigitalOcean Spaces
+DevOps Stack: Docker, pytest 8.3.4, Vitest 2.1.8, GitHub Actions
+
+This detailed breakdown ensures each group understands their technology stack,
+version requirements, and integration responsibilities for successful project execution.

@@ -1,0 +1,92 @@
+services:
+  # PostgreSQL Database
+  - name: codenova-postgres
+    type: pserv
+    plan: free # or a paid plan
+    postgres:
+      version: 15
+    disk:
+      name: postgres_data
+      sizeGB: 1
+      mountPath: /var/lib/postgresql/data
+
+  # Redis Cache
+  - name: codenova-redis
+    type: pserv
+    plan: free # or a paid plan
+    redis:
+      version: 7
+
+  # Backend Web Service
+  - name: codenova-backend
+    type: web
+    plan: free # or a paid plan
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    env:
+      - key: DATABASE_URL
+        fromService:
+          type: pserv
+          name: codenova-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: pserv
+          name: codenova-redis
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENVIRONMENT
+        value: production
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        value: "https://your-backend-url/api/v1/auth/google/callback" # Replace with your backend URL
+    autoDeploy: true
+    rootDir: ./backend
+
+  # Frontend Static Site
+  - name: codenova-frontend
+    type: web
+    plan: free # or a paid plan
+    runtime: static
+    buildCommand: "npm install && npm run build"
+    staticPublishPath: ./dist
+    env:
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false
+      - key: VITE_API_BASE_URL
+        value: "https://your-backend-url/api/v1" # Replace with your backend URL
+    autoDeploy: true
+    rootDir: ./frontend
+
+  # Redis Worker
+  - name: codenova-redis-worker
+    type: worker
+    plan: free # or a paid plan
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python -m app.core.redis_worker"
+    env:
+      - key: DATABASE_URL
+        fromService:
+          type: pserv
+          name: codenova-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: pserv
+          name: codenova-redis
+          property: connectionString
+      - key: SECRET_KEY
+        fromService:
+          type: web
+          name: codenova-backend
+          envVarKey: SECRET_KEY
+      - key: ENVIRONMENT
+        value: production
+    autoDeploy: true
+    rootDir: ./backend

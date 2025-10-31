@@ -1,0 +1,150 @@
+================================================================================
+DETAILED DASHBOARD GRAPHS EXPLANATION - CODENOVA PROJECT
+================================================================================
+
+This document provides comprehensive details about each graph displayed on the
+CodeNova dashboard, including data sources, calculation methods, and visualization
+techniques used.
+
+================================================================================
+GRAPH 1: USAGE TRENDS (Area Chart)
+================================================================================
+
+PURPOSE:
+Displays the daily usage patterns of code reviews and feedback interactions over time.
+
+DATA SOURCES:
+- Primary: `/api/v1/analytics/usage-trends` endpoint
+- Database Tables: `enhanced_feedback`, `feedback_record`, `issue`
+- Time Range: Configurable (7d, 30d, 90d)
+
+DATA STRUCTURE:
+```json
+{
+  "trends": [
+    {
+      "date": "2024-01-15",
+      "reviews": 25,
+      "accepted": 18,
+      "rejected": 7,
+      "total": 43
+    }
+  ],
+  "timeframe": "30d"
+}
+```
+
+CALCULATION METHOD:
+1. Query database for feedback records within specified timeframe
+2. Group records by date (YYYY-MM-DD format)
+3. Count total reviews per day
+4. Categorize feedback actions (accept/reject/modify/ignore)
+5. Calculate daily totals and trends
+
+VISUALIZATION DETAILS:
+- Chart Type: Stacked Area Chart (Recharts)
+- X-Axis: Date (formatted as "Jan 15", "Jan 16", etc.)
+- Y-Axis: Count of activities
+- Colors: Green (#10B981) for accepted feedback
+- Data Points: Daily aggregated counts
+- Tooltip: Shows breakdown of accepted/rejected/total for each day
+
+DATA FLOW:
+Frontend → Analytics API → Analytics Service → Database Query → Aggregation → Caching → Response
+
+================================================================================
+GRAPH 2: FEEDBACK DISTRIBUTION (Pie Chart)
+================================================================================
+
+PURPOSE:
+Shows the distribution of user responses to AI-generated feedback suggestions.
+
+DATA SOURCES:
+- Primary: `/api/v1/analytics/feedback-distribution` endpoint
+- Database Tables: `enhanced_feedback`
+- Time Range: Configurable (7d, 30d, 90d)
+
+DATA STRUCTURE:
+```json
+{
+  "distribution": {
+    "accept": 145,
+    "reject": 32,
+    "modify": 28,
+    "ignore": 15
+  },
+  "timeframe": "30d",
+  "total": 220
+}
+```
+
+CALCULATION METHOD:
+1. Query enhanced_feedback table for records in timeframe
+2. Count occurrences of each FeedbackAction enum value:
+   - ACCEPT: User accepted AI suggestion
+   - REJECT: User rejected AI suggestion
+   - MODIFY: User modified and accepted suggestion
+   - IGNORE: User ignored the suggestion
+3. Calculate percentages for each category
+4. Filter out zero-value categories from display
+
+VISUALIZATION DETAILS:
+- Chart Type: Donut Pie Chart (Recharts)
+- Segments: 4 categories (Accepted, Rejected, Modified, Ignored)
+- Colors: Green (#10B981), Red (#EF4444), Orange (#F59E0B), Gray (#6B7280)
+- Inner Radius: 60px, Outer Radius: 100px
+- Labels: Percentage values on chart segments
+- Legend: Color-coded category names with counts
+- Tooltip: Shows count and percentage for each segment
+
+DATA FLOW:
+Frontend → Analytics API → Feedback Action Aggregation → Database Query → Percentage Calculation → Response
+
+================================================================================
+GRAPH 3: PERFORMANCE METRICS (Multi-Line Chart)
+================================================================================
+
+PURPOSE:
+Tracks AI system performance metrics including response time, accuracy, and issues per review.
+
+DATA SOURCES:
+- Primary: `/api/v1/analytics/user-stats` endpoint (performanceMetrics)
+- Secondary: Calculated from usage trends and feedback data
+- Database Tables: `enhanced_feedback`, `feedback_record`
+- Time Range: Based on available performance data
+
+DATA STRUCTURE:
+```json
+{
+  "performanceMetrics": [
+    {
+      "period": "2024-01-15",
+      "avgResponseTime": 1.2,
+      "avgIssuesPerReview": 3.5,
+      "accuracy": 87.5,
+      "totalReviews": 25
+    }
+  ]
+}
+```
+
+CALCULATION METHOD:
+1. Query feedback records with timestamps
+2. Group by time periods (daily/weekly based on timeframe)
+3. Calculate average response time from AI processing timestamps
+4. Compute accuracy rate: (accepted feedback / total feedback) * 100
+5. Calculate issues per review: total issues found / number of reviews
+6. Aggregate metrics per time period
+
+VISUALIZATION DETAILS:
+- Chart Type: Multi-Axis Line Chart (Recharts)
+- Left Y-Axis: Accuracy percentage (0-100%)
+- Right Y-Axis: Response time in seconds, Issues per review count
+- Lines: Blue (accuracy), Green (response time), Yellow (issues per review)
+- X-Axis: Time periods (dates)
+- Summary Cards: Average values displayed below chart
+- Tooltip: Shows all three metrics for each data point
+
+DATA FLOW:
+Frontend → User Stats API → Performance Metrics Calculation → Database Aggregation → Time-series Processing → Response
+
